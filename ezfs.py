@@ -39,7 +39,7 @@ except ImportError:
             return func
 
 
-__version__ = "0.0.1"
+__version__ = "1.0.0"
 # Compressors may either be a module, or subclass of Compressor,
 # with `compress()` and `decompress()` functions.
 __COMPRESSORS__: dict[str, Compressor | ModuleType | None] = {
