@@ -555,20 +555,27 @@ def init_compressors() -> list[str]:
     """
     global __COMPRESSOR_SETUP_COMPLETE__  # pylint: disable=global-statement
     __COMPRESSOR_SETUP_COMPLETE__ = True
+    # pylint: disable=import-outside-toplevel
     try:
-        import gzip  # pylint: disable=import-outside-toplevel
+        import bz2
+
+        __COMPRESSORS__["bz2"] = bz2
+    except ModuleNotFoundError:
+        pass
+    try:
+        import gzip
 
         __COMPRESSORS__["gzip"] = gzip
     except ModuleNotFoundError:
         pass
     try:
-        import zstandard  # pylint: disable=import-outside-toplevel
+        import zstandard
 
         __COMPRESSORS__["zstd"] = zstandard
     except ModuleNotFoundError:
         pass
     try:
-        import lz4.frame  # pylint: disable=import-outside-toplevel
+        import lz4.frame
 
         __COMPRESSORS__["lz4"] = lz4.frame
     except ModuleNotFoundError:
