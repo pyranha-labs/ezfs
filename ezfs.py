@@ -569,6 +569,12 @@ def init_compressors() -> list[str]:
     except ModuleNotFoundError:
         pass
     try:
+        import lzma
+
+        __COMPRESSORS__["lzma"] = lzma
+    except ModuleNotFoundError:
+        pass
+    try:
         import zstandard
 
         __COMPRESSORS__["zstd"] = zstandard
