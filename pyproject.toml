@@ -34,6 +34,7 @@ Issues = "https://github.com/pyranha-labs/ezfs/issues"
 
 [project.optional-dependencies]
 blosc = ["blosc"]
+brotli = ["brotli"]
 s3 = ["boto3"]
 lz4 = ["lz4"]
 zstd = ["zstandard"]

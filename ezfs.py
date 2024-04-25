@@ -585,6 +585,12 @@ def init_compressors() -> list[str]:
     except ModuleNotFoundError:
         pass
     try:
+        import brotli
+
+        __COMPRESSORS__["brotli"] = brotli
+    except ModuleNotFoundError:
+        pass
+    try:
         import lz4.frame
 
         __COMPRESSORS__["lz4"] = lz4.frame
