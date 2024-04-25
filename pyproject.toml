@@ -33,9 +33,10 @@ Changelog = "https://github.com/pyranha-labs/ezfs/releases"
 Issues = "https://github.com/pyranha-labs/ezfs/issues"
 
 [project.optional-dependencies]
+blosc = ["blosc"]
 s3 = ["boto3"]
-zstd = ["zstandard"]
 lz4 = ["lz4"]
+zstd = ["zstandard"]
 
 [build-system]
 requires = ["setuptools >= 61.0"]

@@ -555,7 +555,9 @@ def init_compressors() -> list[str]:
     """
     global __COMPRESSOR_SETUP_COMPLETE__  # pylint: disable=global-statement
     __COMPRESSOR_SETUP_COMPLETE__ = True
+
     # pylint: disable=import-outside-toplevel
+    # Builtin compression modules.
     try:
         import bz2
 
@@ -574,10 +576,12 @@ def init_compressors() -> list[str]:
         __COMPRESSORS__["lzma"] = lzma
     except ModuleNotFoundError:
         pass
-    try:
-        import zstandard
 
-        __COMPRESSORS__["zstd"] = zstandard
+    # Third-party compression modules.
+    try:
+        import blosc
+
+        __COMPRESSORS__["blosc"] = blosc
     except ModuleNotFoundError:
         pass
     try:
@@ -586,4 +590,11 @@ def init_compressors() -> list[str]:
         __COMPRESSORS__["lz4"] = lz4.frame
     except ModuleNotFoundError:
         pass
+    try:
+        import zstandard
+
+        __COMPRESSORS__["zstd"] = zstandard
+    except ModuleNotFoundError:
+        pass
+
     return list(set(str(key).lower() for key in __COMPRESSORS__))
