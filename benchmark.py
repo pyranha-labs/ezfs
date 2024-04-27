@@ -1,118 +1,47 @@
 """Simple benchmarks to compare performance of related calls."""
 
-import gzip
 import timeit
+from types import ModuleType
 from typing import Callable
-
-import zstandard
+from typing import Iterable
 
 import ezfs
 
+TEST_FILE_NAME = "compression.test"
 TEST_STRING = '"Test string content for storage in file that is 64 bytes long."'
-
-tfs = ezfs.LocalFilesystem(".")
-# tfs = ezfs.MemFilesystem()
-# tfs = ezfs.S3BotoFilesystem(
-#     'bucket-name',
-#     access_key_id='accesskey',
-#     secret_access_key='secretkey',
-# )
+TEST_STRING_BINARY = TEST_STRING.encode("utf-8")
+COL_WIDTH = 24
 
 
-def _bench_all(number: int = 1, repeat: int = 1) -> None:
-    """Run all the selected benchmarks."""
-    print(f'{"Directory:":<23}', getattr(tfs, "directory", "None"))
-    print(f'{"Compression types:":<23}', ", ".join(ezfs.init_compressors()))
-    print(f'{"Count:":<23}', number)
-    print(f'{"Repeat:":<23}', repeat)
-    for func in funcs:
-        _bench_func(func, number, repeat)
+def _bench_all(tests: list[tuple], number: int = 1, repeat: int = 1) -> None:
+    for func, args, suffix in tests:
+        _bench_func(func, args, number, repeat, test_suffix=suffix)
 
 
-def _bench_func(func: Callable, number: int, repeat: int) -> None:
-    result = timeit.repeat(func, number=number, repeat=repeat)
+def _bench_func(func: Callable, args: Iterable, number: int, repeat: int, test_suffix: str = "") -> None:
+    result = timeit.repeat(lambda: func(*args), number=number, repeat=repeat)
     for duration in result:
-        print(f"{func.__name__.replace('_bench_', ''):<23}", _format_time(duration))
+        print(f"{func.__name__.replace('_bench_', '') + test_suffix:<{COL_WIDTH}}", _format_time(duration))
 
 
-def _bench_gzip_read_binary() -> bytes:
-    with gzip.open("test.gz", "rb") as file:
+def _bench_ezfs_read(filesystem: ezfs.Filesystem, mode: str, compression: str) -> bytes:
+    with filesystem.open(TEST_FILE_NAME, mode, compression=compression) as file:
         return file.read()
 
 
-def _bench_gzip_read_text() -> str:
-    with gzip.open("test.gz", "rt") as file:
+def _bench_ezfs_write(filesystem: ezfs.Filesystem, mode: str, compression: str, content: str | bytes) -> int:
+    with filesystem.open(TEST_FILE_NAME, mode, compression=compression) as file:
+        return file.write(content)
+
+
+def _bench_native_read(opener: ModuleType, mode: str) -> bytes:
+    with opener.open(TEST_FILE_NAME, mode) as file:
         return file.read()
 
 
-def _bench_gzip_read_binary_ezfs() -> bytes:
-    with tfs.open("test.gz", "rb", compression="gzip") as file:
-        return file.read()
-
-
-def _bench_gzip_read_text_ezfs() -> str:
-    with tfs.open("test.gz", "rt", compression="gzip") as file:
-        return file.read()
-
-
-def _bench_zstd_read_binary() -> bytes:
-    with zstandard.open("test.zst", "rb") as file:
-        return file.read()
-
-
-def _bench_zstd_read_text() -> str:
-    with zstandard.open("test.zst", "rt") as file:
-        return file.read()
-
-
-def _bench_zstd_read_binary_ezfs() -> bytes:
-    with tfs.open("test.zst", "rb", compression="zstd") as file:
-        return file.read()
-
-
-def _bench_zstd_read_text_ezfs() -> str:
-    with tfs.open("test.zst", "rt", compression="zstd") as file:
-        return file.read()
-
-
-def _bench_gzip_write_binary() -> int:
-    with gzip.open("test.gz", "wb+") as file:
-        return file.write(TEST_STRING.encode("utf-8"))
-
-
-def _bench_gzip_write_text() -> int:
-    with gzip.open("test.gz", "wt+") as file:
-        return file.write(TEST_STRING)
-
-
-def _bench_gzip_write_binary_ezfs() -> int:
-    with tfs.open("test.gz", "wb+", compression="gzip") as file:
-        return file.write(TEST_STRING)
-
-
-def _bench_gzip_write_text_ezfs() -> int:
-    with tfs.open("test.gz", "wt+", compression="gzip") as file:
-        return file.write(TEST_STRING)
-
-
-def _bench_zstd_write_binary() -> int:
-    with zstandard.open("test.zst", "wb") as file:
-        return file.write(TEST_STRING.encode("utf-8"))
-
-
-def _bench_zstd_write_text() -> int:
-    with zstandard.open("test.zst", "wt") as file:
-        return file.write(TEST_STRING)
-
-
-def _bench_zstd_write_binary_ezfs() -> int:
-    with tfs.open("test.zst", "wb+", compression="zstd") as file:
-        return file.write(TEST_STRING)
-
-
-def _bench_zstd_write_text_ezfs() -> int:
-    with tfs.open("test.zst", "wt+", compression="zstd") as file:
-        return file.write(TEST_STRING)
+def _bench_native_write(opener: ModuleType, mode: str, content: str | bytes) -> int:
+    with opener.open(TEST_FILE_NAME, mode) as file:
+        return file.write(content)
 
 
 def _format_time(duration: float) -> str:
@@ -129,26 +58,67 @@ def _format_time(duration: float) -> str:
             return "%.*g %s" % (3, duration / scale, unit)
 
 
-funcs = [
-    # Write tests.
-    _bench_gzip_write_binary,
-    _bench_gzip_write_text,
-    _bench_gzip_write_binary_ezfs,
-    _bench_gzip_write_text_ezfs,
-    _bench_zstd_write_binary,
-    _bench_zstd_write_text,
-    _bench_zstd_write_binary_ezfs,
-    _bench_zstd_write_text_ezfs,
-    # Read tests.
-    _bench_gzip_read_binary,
-    _bench_gzip_read_text,
-    _bench_gzip_read_binary_ezfs,
-    _bench_gzip_read_text_ezfs,
-    _bench_zstd_read_binary,
-    _bench_zstd_read_text,
-    _bench_zstd_read_binary_ezfs,
-    _bench_zstd_read_text_ezfs,
-]
+def main() -> None:
+    """Run all the selected benchmarks."""
+    filesystem = ezfs.LocalFilesystem(".")
+    # filesystem = ezfs.MemFilesystem()
+    # filesystem = ezfs.S3BotoFilesystem(
+    #     'bucket-name',
+    #     access_key_id='accesskey',
+    #     secret_access_key='secretkey',
+    # )
+
+    number = 25000
+    repeat = 1
+    print(f'{"Compression types:":<{COL_WIDTH}}', ", ".join(ezfs.init_compressors()))
+    print(f'{"Count:":<{COL_WIDTH}}', number)
+    print(f'{"Repeat:":<{COL_WIDTH}}', repeat)
+    compressors = ezfs.__COMPRESSORS__
+    test_suites = [
+        (compressors.get("bz2"), "bz2"),
+        (compressors.get("gzip"), "gzip"),
+        (compressors.get("lzma"), "lzma"),
+        (compressors.get("blosc"), "blosc", False),
+        (compressors.get("brotli"), "brotli", False),
+        (compressors.get("lz4"), "lz4"),
+        (compressors.get("snappy"), "snappy", False),
+        (compressors.get("zstd"), "zstd"),
+    ]
+    for test_suite in test_suites:
+        compressor = test_suite[0]
+        if not compressor:
+            continue
+        suffix = test_suite[1]
+        native_open_tests = test_suite[2] if len(test_suite) > 2 else True
+        tests = []
+        if native_open_tests:
+            tests.extend(
+                [
+                    (_bench_native_write, (compressor, "wb", TEST_STRING_BINARY), f"_{suffix}_binary"),
+                    (_bench_native_write, (compressor, "wt", TEST_STRING), f"_{suffix}_text"),
+                ]
+            )
+        tests.extend(
+            [
+                (_bench_ezfs_write, (filesystem, "wb", suffix, TEST_STRING_BINARY), f"_{suffix}_binary"),
+                (_bench_ezfs_write, (filesystem, "wt", suffix, TEST_STRING), f"_{suffix}_text"),
+            ]
+        )
+        if native_open_tests:
+            tests.extend(
+                [
+                    (_bench_native_read, (compressor, "rb"), f"_{suffix}_binary"),
+                    (_bench_native_read, (compressor, "rt"), f"_{suffix}_text"),
+                ]
+            )
+        tests.extend(
+            [
+                (_bench_ezfs_read, (filesystem, "rb", suffix), f"_{suffix}_binary"),
+                (_bench_ezfs_read, (filesystem, "rt", suffix), f"_{suffix}_text"),
+            ]
+        )
+        _bench_all(tests, number, repeat)
+
 
 if __name__ == "__main__":
-    _bench_all(10000)
+    main()
