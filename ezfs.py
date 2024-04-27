@@ -16,16 +16,20 @@ Includes the following basic adapters that can used directly, or as examples for
 - Local storage
 - In-memory storage
 - Remote storage (S3)
+- Database storage (SQLite)
 """
 
 from __future__ import annotations
 
 import abc
 import os
+import re
+import typing
 from contextlib import contextmanager
 from io import UnsupportedOperation
 from types import ModuleType
 from typing import Callable
+from typing import Iterable
 
 try:
     from typing import override  # pylint: disable=ungrouped-imports
@@ -37,6 +41,17 @@ except ImportError:
         def override(func: Callable) -> Callable:
             """Passthrough decorator for environments where typing is not enabled."""
             return func
+
+
+if typing.TYPE_CHECKING:
+    try:
+        import sqlite3
+    except ModuleNotFoundError:
+
+        class sqlite3:  # pylint: disable=invalid-name
+            """Placeholder module for typing."""
+
+            Cursor = None
 
 
 __version__ = "1.0.0"
@@ -545,6 +560,130 @@ class S3BotoFilesystem(Filesystem):
     @override
     def _get_file(self, file: str, mode: str, encoding: str, compression: str) -> File:
         return S3BotoFile(self, file, mode=mode, encoding=encoding, compression=compression)
+
+
+class SQLiteFile(File):
+    """File-like object in a SQLite database."""
+
+    def __init__(
+        self,
+        filesystem: SQLiteFilesystem,
+        file: str,
+        mode: str = "rt",
+        encoding: str = "utf-8",
+        compression: str = NO_COMPRESSION,
+    ) -> None:
+        """Initialize the base attributes of the file-like database object for read and write operations.
+
+        Args:
+            filesystem: Original filesystem used to create the File.
+            file: Location of the object in the database table.
+            mode: Options used to open the file.
+            encoding: Name of the encoding used to decode or encode the file when in text mode.
+            compression: Type of compression used when reading or writing the file contents.
+        """
+        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression)
+        self.filesystem: SQLiteFilesystem = filesystem  # Set again with typehint to avoid lint warnings.
+
+    @override
+    def __repr__(self) -> str:
+        return f"sqlite3://{self.filesystem.database}?table_name={self.filesystem.table_name}&file={self.file}"
+
+    @override
+    def close(self) -> None:
+        # No action required for database files.
+        pass
+
+    @override
+    def _read(self) -> bytes | str:
+        res = self.filesystem.execute(self.filesystem.read_query, (self.file,)).fetchone()
+        if res is None:
+            raise FileNotFoundError(2, f"No such file: '{self.file}'")
+        content = res[0]
+        return content
+
+    @override
+    def _write(self, data: bytes | str) -> int:
+        self.filesystem.execute(self.filesystem.write_query, (self.file, data, data))
+        self.filesystem.commit()
+        return len(data)
+
+
+class SQLiteFilesystem(Filesystem):
+    """Collection of file-like objects available in a database using SQLite."""
+
+    def __init__(
+        self,
+        database: str,
+        table_name: str = "files",
+        file_col: str = "file",
+        content_col: str = "content",
+        compression: str = NO_COMPRESSION,
+    ) -> None:
+        """Initialize the base attributes of the database filesystem for read and write operations.
+
+        Args:
+            database: The path to the database file to be opened. e.g., "example.db", ":memory:", etc.
+            table_name: Name of the table with data available as files in the filesystem.
+            file_col: Name of the column in the table that contains the path to the files.
+            content_col: Name of the column in the table that contains the raw contents for the files.
+            compression: Default compression type to use when reading or writing file contents.
+                Use basic string name to load from default compressor cache.
+        """
+        for name, value in (
+            ("table_name", table_name),
+            ("file_col", file_col),
+            ("content_col", content_col),
+        ):
+            if not re.match(r"^[A-za-z0-9_]+$", value):
+                raise ValueError(f"{name} may only contain letters, numbers, and underscores.")
+        super().__init__(compression=compression)
+        try:
+            # pylint: disable=import-outside-toplevel,redefined-outer-name,reimported
+            import sqlite3
+
+        except ModuleNotFoundError as error:
+            raise ModuleNotFoundError(f"sqlite3 is required to use {self.__class__.__name__}") from error
+
+        # Save the database and table name to allow string representations in files,
+        # but cache the templates to prevent modifications from impacting later execution.
+        self.database = database
+        self.table_name = table_name  # Save the table name to allow
+        self._connection = sqlite3.connect(database)
+        self._cursor = self._connection.cursor()
+
+        # Cache the query strings to reduce overhead.
+        # "nosec" added due to validation before this point.
+        self._create_query = f"CREATE TABLE {table_name}({file_col} TEXT(255) PRIMARY KEY, {content_col} BLOB)"  # nosec
+        self.read_query = f"SELECT {content_col} FROM {table_name} WHERE {file_col} = (?) LIMIT 1"  # nosec
+        self.write_query = (
+            f"INSERT INTO {table_name}({file_col}, {content_col}) VALUES(?, ?) "  # nosec
+            f"ON CONFLICT({file_col}) DO UPDATE SET {content_col}=?;"
+        )
+
+    def commit(self) -> None:
+        """Commit any pending transactions to the database backend."""
+        self._connection.commit()
+
+    def create_table(self) -> None:
+        """Create a basic table to use for storage."""
+        self.execute(self._create_query)
+
+    def execute(self, sql: str, params: Iterable | dict = ()) -> sqlite3.Cursor:
+        """Execute a SQL statement against the backend storage table.
+
+        Args:
+            sql: A single SQL statement.
+            params: Iterable of values to bind to placeholders in sql, or dict if named placeholders are used.
+
+        Returns:
+            The cursor used to execute the statement, allowing caller to fetch results.
+        """
+        return self._cursor.execute(sql, params)
+
+    @override
+    def _get_file(self, file: str, mode: str, encoding: str, compression: str) -> SQLiteFile:
+        return SQLiteFile(self, file, mode=mode, encoding=encoding, compression=compression)
 
 
 def init_compressors() -> list[str]:

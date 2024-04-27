@@ -63,10 +63,12 @@ def main() -> None:
     filesystem = ezfs.LocalFilesystem(".")
     # filesystem = ezfs.MemFilesystem()
     # filesystem = ezfs.S3BotoFilesystem(
-    #     'bucket-name',
-    #     access_key_id='accesskey',
-    #     secret_access_key='secretkey',
+    #     "bucket-name",
+    #     access_key_id="accesskey",
+    #     secret_access_key="secretkey",
     # )
+    # filesystem = ezfs.SQLiteFilesystem(f"{TEST_FILE_NAME}.db")
+    # filesystem.create_table()
 
     number = 25000
     repeat = 1
@@ -96,23 +98,14 @@ def main() -> None:
                 [
                     (_bench_native_write, (compressor, "wb", TEST_STRING_BINARY), f"_{suffix}_binary"),
                     (_bench_native_write, (compressor, "wt", TEST_STRING), f"_{suffix}_text"),
-                ]
-            )
-        tests.extend(
-            [
-                (_bench_ezfs_write, (filesystem, "wb", suffix, TEST_STRING_BINARY), f"_{suffix}_binary"),
-                (_bench_ezfs_write, (filesystem, "wt", suffix, TEST_STRING), f"_{suffix}_text"),
-            ]
-        )
-        if native_open_tests:
-            tests.extend(
-                [
                     (_bench_native_read, (compressor, "rb"), f"_{suffix}_binary"),
                     (_bench_native_read, (compressor, "rt"), f"_{suffix}_text"),
                 ]
             )
         tests.extend(
             [
+                (_bench_ezfs_write, (filesystem, "wb", suffix, TEST_STRING_BINARY), f"_{suffix}_binary"),
+                (_bench_ezfs_write, (filesystem, "wt", suffix, TEST_STRING), f"_{suffix}_text"),
                 (_bench_ezfs_read, (filesystem, "rb", suffix), f"_{suffix}_binary"),
                 (_bench_ezfs_read, (filesystem, "rt", suffix), f"_{suffix}_text"),
             ]
