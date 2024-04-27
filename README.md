@@ -46,7 +46,7 @@ the primary `File`, `Filesystem`, and `Compressor` adapters.
   - `bz2`, `gzip`, `lzma` (when built into Python)
   - `blosc`, `brotli`, `lz4`, `snappy`, and `zstd` (when installed separately)
 - Support multiple storage types
-  - `sqlite3` (when build into Python)
+  - `sqlite3` (when built into Python)
   - `S3` (when installed separately)
 - Theoretically any compression type, or backend storage type, by extending `Compressor`, `File`, and `Filesystem` 
 

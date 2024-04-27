@@ -54,7 +54,7 @@ if typing.TYPE_CHECKING:
             Cursor = None
 
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 # Compressors may either be a module, or subclass of Compressor,
 # with `compress()` and `decompress()` functions.
 __COMPRESSORS__: dict[str, Compressor | ModuleType | None] = {
