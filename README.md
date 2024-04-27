@@ -42,10 +42,13 @@ the primary `File`, `Filesystem`, and `Compressor` adapters.
 ## Compatibility
 
 - Supports Python 3.10+
-- Supports `bz2`, `gzip`, `lzma` compression types (when built into Python)
-- Supports `blosc`, `brotli`, `lz4`, `snappy`, and `zstd` compression types (when installed separately)
-- Supports `S3` storage (when installed separately)
-- Theoretically any compression type, or backend storage type, by extending `File`, `Filesystem`, and `Compressor`
+- Supports multiple compression types
+  - `bz2`, `gzip`, `lzma` (when built into Python)
+  - `blosc`, `brotli`, `lz4`, `snappy`, and `zstd` (when installed separately)
+- Support multiple storage types
+  - `sqlite3` (when build into Python)
+  - `S3` (when installed separately)
+- Theoretically any compression type, or backend storage type, by extending `Compressor`, `File`, and `Filesystem` 
 
 
 ## Getting Started
