@@ -597,6 +597,12 @@ def init_compressors() -> list[str]:
     except ModuleNotFoundError:
         pass
     try:
+        import snappy
+
+        __COMPRESSORS__["snappy"] = snappy
+    except ModuleNotFoundError:
+        pass
+    try:
         import zstandard
 
         __COMPRESSORS__["zstd"] = zstandard
