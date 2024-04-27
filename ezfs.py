@@ -609,4 +609,4 @@ def init_compressors() -> list[str]:
     except ModuleNotFoundError:
         pass
 
-    return list(set(str(key).lower() for key in __COMPRESSORS__))
+    return sorted(set(str(key).lower() for key in __COMPRESSORS__))
