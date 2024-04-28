@@ -45,7 +45,7 @@ lint:
 	@ruff check $(PROJECT_ROOT) && echo "🏆 Code/Doc style good to go!" || \
 		(echo "💔 Please resolve all style warnings to ensure readability, scalability, and maintainability:\nruff check --fix $(PROJECT_ROOT)"; exit 1)
 	@echo Running code quality checks: pylint
-	@pylint $(NAME) && echo "🏆 Code quality good to go!" || \
+	@pylint $(NAME) benchmark.py && echo "🏆 Code quality good to go!" || \
 		(echo "💔 Please resolve all code quality warnings to ensure scalability and maintainability."; exit 1)
 
 # Check typehints for static typing best practices.
