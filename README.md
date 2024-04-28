@@ -15,11 +15,20 @@
 
 # EZFS
 
-EZFS is an optimized, minimal dependency (down to 0), virtual filesystem adapter library for Python.
-The library provides abstraction layers for reading and writing to various backend storage solutions
-with a single frontend. Reading and writing is supported for text and binary files across local, remote,
-and memory "filesystems". Additional compression types and storage types can be supported by extending
-the primary `File`, `Filesystem`, and `Compressor` adapters.
+EZFS (Easy Filesystem, or Everythingz a Filesystem) is an optimized, minimal dependency (down to 0),
+virtual filesystem adapter library for Python. EZFS provides access to the most common operations
+for "files" and "filesystems", while abstracting storage away from the user and developer, to simplify
+both UX and DX. All you need to know is how to access files in Python, and EZFS will take care of the rest,
+regardless of your selected backend.
+
+In order to provide a streamlined UX and DX, EZFS leverages existing native Python designs and patterns,
+such as open/read/write operations, and applies them all backend storage types. The learning curve is minimal:
+if you know how to read/write a local file in Python, you also know how to read/write to any location in EZFS.
+
+Reading and writing is supported for both text and binary files across local, remote, and memory "filesystems".
+Additional compression types and storage types can be supported by extending the primary `File`, `Filesystem`,
+and `Compressor` adapters. EZFS can also be faster than "native" open/read/write operations in some scenarios,
+due to having a specialized focus. Refer to the compatibility guides, and "Why EZFS", for more information.
 
 
 ## Table Of Contents
@@ -33,8 +42,7 @@ the primary `File`, `Filesystem`, and `Compressor` adapters.
     * [Swap between filesystem types](#swap-between-filesystem-types-local-file-to-local-db)
     * [Access a file in an S3 bucket](#access-a-file-object-in-an-s3-bucket-and-use-compression)
   * [Why EZFS?](#why-ezfs)
-    * [What does EZFS provide?](#what-does-ezfs-provide)
-    * [What does EZFS not provide?](#what-does-ezfs-not-provide)
+    * [What does EZFS provide? What does EZFS not provide?](#what-does-ezfs-provide-what-does-ezfs-not-provide)
     * [Dependency Simplicity Example](#dependency-simplicity-example)
     * [Optimized Remote Filesystem Example](#optimized-remote-filesystem-example)
   * [Contributing](#contributing)
@@ -91,7 +99,8 @@ cp ezfs.py <target project directory>
 EZFS filesystems and file objects are designed to work nearly identical to native `open()` file handles.
 Basic read and write operations can be directly swapped out after creating a filesystem adapter, and calling `open()`
 against the filesystem instead of Python built-ins, or 3rd party compression libraries. Here are a few examples
-of how to use the more advanced features, such as compression and remote storage.
+of how to use the more advanced features, such as compression and remote storage. Refer to the supported operations
+table in [Why EZFS?](#why-ezfs) for information on additional features.
 
 ### Write a file with compression
 ```python
@@ -157,25 +166,64 @@ with filesystem.open('test-file.txt.zst') as in_file:
 
 To simplify simple use cases.
 
-EZFS is a very lightweight library (one file!), used to optimize simple use cases, or provide a starting point
-for more complex use cases. While there are other libraries that can help accomplish filesystem-like use cases
-depending on the backend, such as `s3fs` for S3, they may be more than needed or wanted. For example, perhaps
+EZFS is a very lightweight library (one file!), used to optimize "simple" use cases, or provide a starting point
+for more complex use cases. What make a use case "simple? Reliance on core file/filesystem functionality, such as
+create, read, write, and delete operations. What makes a use case "complex"? Reliance on complex file/filesystem
+features, such as permissions, streaming, and seeking. The former benefit from EZFS out-of-the-box, while the latter
+requires developers to extend the functionality further if they need this type of support.
+
+While there are other libraries that can help accomplish file/filesystem-like use cases depending on the backend,
+such as `s3fs` for S3, they may be more than needed or wanted. For example, perhaps
 you have predictable logic to store/read files, and don't need to browse the filesystem tree. Perhaps you want
 to leverage a custom service to act as storage interchangeably with local files, without installing extra
 dependencies from other solutions. EZFS adapters can help with that. If you need full metadata support like
 filesystem tree browsing, or file permissions, EZFS cannot help with that (natively), and recommends using a
 more feature rich solution, or extending the adapters to fit your needs.
 
-### What does EZFS provide?
+### What does EZFS provide? What does EZFS not provide?
 
 EZFS provides a shared, optimized, interface to read and write files to various backend locations,
 with or without compression. The backend for the storage can often be changed with a single line,
 without changing the rest of the code.
 
-### What does EZFS not provide?
-
 EZFS does not provide a complex feature set for advanced use cases, such as managing permissions or other metadata
 on filesystems. EZFS also not provide streaming interfaces for processing larger than memory files in "chunks".
+The following is a list of common file/filesystem operations, whether they are supported out-of-the-box, whether
+they are supported with advanced installs (extras), and whether they are optimized/simplified by EZFS.
+
+| Operations            | OOB | Extras | Optimized | Simplified |
+|-----------------------|-----|--------|-----------|------------|
+| open()                | ✅   | -      | ✅ ²       | ✅          |
+| read()                | ✅   | -      | ✅         | ✅          |
+| write()               | ✅   | -      | ✅         | ✅          |
+| close()               | ✅   | -      | ✅ ²       | ✅          |
+| remove()              | ✅   | -      | ✅ ³       | ✅          |
+| exists()              | ✅   | -      | ✅ ³       | ✅          |
+| isfile()              | ✅   | -      | ✅ ³       | ✅          |
+| Memory file storage   | ✅   | ✅      | ✅         | ✅          |
+| S3 file storage       | ❌   | ✅      | ✅         | ✅          |
+| SQLite file storage   | ✅ ¹ | -      | ✅         | ✅          |
+| bz2 compression       | ✅ ¹ | -      | ✅         | ✅          |
+| gzip compression      | ✅ ¹ | -      | ✅         | ✅          |
+| lzma compression      | ✅ ¹ | -      | ✅         | ✅          |
+| blosc compression     | ❌   | ✅      | ✅         | ✅          |
+| brotli compression    | ❌   | ✅      | ✅         | ✅          |
+| lz4 compression       | ❌   | ✅      | ✅         | ✅          |
+| snappy compression    | ❌   | ✅      | ✅         | ✅          |
+| zstd compression      | ❌   | ✅      | ✅         | ✅          |
+| isdir()               | ❌   | ❌      | -         | -          |
+| listdir()             | ❌   | ❌      | -         | -          |
+| mkdir()               | ❌   | ❌      | -         | -          |
+| rmdir()               | ❌   | ❌      | -         | -          |
+| Other "os" calls      | ❌   | ❌      | -         | -          |
+| Other "os.path" calls | ❌   | ❌      | -         | -          |
+| File permissions      | ❌   | ❌      | -         | -          |
+| File streaming        | ❌   | ❌      | -         | -          |
+| File seeking          | ❌   | ❌      | -         | -          |
+
+¹ Depends on whether Python was built with it  
+² Depends on compression module used  
+³ Depends on the backend used
 
 ### Dependency Simplicity Example
 
