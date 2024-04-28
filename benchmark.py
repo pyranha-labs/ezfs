@@ -10,7 +10,7 @@ from typing import Iterable
 
 import ezfs
 
-COL_WIDTH = 32
+COL_WIDTH = 34
 
 TEST_FILE_NAME = "compression.test"
 TEST_STRING = '"Test string content for storage in file that is 64 bytes long."'
@@ -70,7 +70,7 @@ def _bench_native_filesystem(
     number: int,
     repeat: int,
 ) -> None:
-    disable_open = (
+    no_open = (
         "blosc",
         "brotli",
         "snappy",
@@ -79,14 +79,21 @@ def _bench_native_filesystem(
         compressor = ezfs.__COMPRESSORS__[compression]
         if not compressor or compressor == ezfs.NO_COMPRESSION:
             continue
-        if compression not in disable_open:
+        if compression in no_open:
+            tests = [
+                (_bench_native_write_manual, (compressor, "wb", TEST_STRING_BINARY), f"{compression}_binary"),
+                (_bench_native_write_manual, (compressor, "wt", TEST_STRING), f"{compression}_text"),
+                (_bench_native_read_manual, (compressor, "rb"), f"{compression}_binary"),
+                (_bench_native_read_manual, (compressor, "rt"), f"{compression}_text"),
+            ]
+        else:
             tests = [
                 (_bench_native_write, (compressor, "wb", TEST_STRING_BINARY), f"{compression}_binary"),
                 (_bench_native_write, (compressor, "wt", TEST_STRING), f"{compression}_text"),
                 (_bench_native_read, (compressor, "rb"), f"{compression}_binary"),
                 (_bench_native_read, (compressor, "rt"), f"{compression}_text"),
             ]
-            _bench_all(tests, number, repeat)
+        _bench_all(tests, number, repeat)
 
 
 def _bench_native_read(opener: ModuleType, mode: str) -> bytes:
@@ -94,9 +101,26 @@ def _bench_native_read(opener: ModuleType, mode: str) -> bytes:
         return file.read()
 
 
+def _bench_native_read_manual(compressor: ModuleType, mode: str) -> bytes:
+    # Alternative version of _bench_native_read with manual file open and read, due to compressor missing open alias.
+    with open(TEST_FILE_NAME, 'rb') as file:
+        data = compressor.decompress(file.read())
+        if 't' in mode:
+            data = data.decode('utf-8')
+        return data
+
+
 def _bench_native_write(opener: ModuleType, mode: str, content: str | bytes) -> int:
     with opener.open(TEST_FILE_NAME, mode) as file:
         return file.write(content)
+
+
+def _bench_native_write_manual(compressor: ModuleType, mode: str, content: str | bytes) -> int:
+    # Alternative version of _bench_native_write with manual file open and write, due to compressor missing open alias.
+    with open(TEST_FILE_NAME, 'wb') as file:
+        if "t" in mode:
+            content = content.encode('utf-8')
+        return file.write(compressor.compress(content))
 
 
 def _format_time(duration: float) -> str:
