@@ -28,6 +28,7 @@ import typing
 from contextlib import contextmanager
 from io import UnsupportedOperation
 from types import ModuleType
+from types import TracebackType
 from typing import Callable
 from typing import Iterable
 
@@ -135,12 +136,33 @@ class File(metaclass=abc.ABCMeta):
 
     def __str__(self) -> str:
         """External string representation of the file."""
-        # Use relative path within filesystem to avoid exposing full path in case it contains sensitive information.
         return self.file
 
-    @abc.abstractmethod
-    def close(self) -> None:
+    def __enter__(self) -> File:
+        """Open a file for read and write operations.
+
+        Return:
+            This File in an open state as a context manager to handle read and write operations.
+        """
+        self._open()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException],
+        exc_value: BaseException,
+        traceback: TracebackType,  # Preserve the original python name. pylint: disable=redefined-outer-name
+    ) -> None:
+        """Cleanup anc close the File when read and write operations are complete."""
+        self._close()
+
+    def _close(self) -> None:
         """Close any open resources used by the file."""
+        # No actions required by default. Subclasses must inherit and override if they need to close resources.
+
+    def _open(self) -> None:
+        """Open file for read and write operations."""
+        self._open_checks()
 
     def _open_checks(self) -> None:
         """Perform pre-checks before opening a file and raise exceptions matching local files."""
@@ -156,15 +178,6 @@ class File(metaclass=abc.ABCMeta):
         if "t" in mode and "b" in mode:
             raise ValueError("can't have text and binary mode at once")
 
-    @contextmanager
-    def open(self) -> File:
-        """Open file for read and write operations, and perform automatic cleanup."""
-        self._open_checks()
-        try:
-            yield self
-        finally:
-            self.close()
-
     @abc.abstractmethod
     def _read(self) -> bytes | str:
         """Read the contents of the file."""
@@ -175,6 +188,7 @@ class File(metaclass=abc.ABCMeta):
         Raises:
             UnsupportedOperation if the file is not writeable.
         """
+        self._read_checks()
         data = self._read()
         if self.compression:
             data = self.compression.decompress(data)
@@ -204,6 +218,7 @@ class File(metaclass=abc.ABCMeta):
             UnsupportedOperation if the file is not writeable.
             TypeError if the contents are invalid.
         """
+        self._write_checks(content)
         if self.compression:
             if isinstance(content, str):
                 content = content.encode(self.encoding)
@@ -229,21 +244,20 @@ class Filesystem(metaclass=abc.ABCMeta):
 
     def __init__(
         self,
+        file_type: type[File],
         compression: str | Compressor | ModuleType | None = NO_COMPRESSION,
     ) -> None:
         """Initialize the base attributes of the filesystem for read and write operations.
 
         Args:
+            file_type: File adapter type to use when opening files for read and write operations.
             compression: Default compression type to use when reading or writing file contents.
                 Use basic string name to load from default compressor cache.
         """
+        self.ftype = file_type
         self.compression = compression
         if not __COMPRESSOR_SETUP_COMPLETE__:
             init_compressors()
-
-    @abc.abstractmethod
-    def _get_file(self, file: str, mode: str, encoding: str, compression: str) -> File:
-        """Create file metadata object for read and write operations."""
 
     @contextmanager
     def open(
@@ -263,17 +277,14 @@ class Filesystem(metaclass=abc.ABCMeta):
                 Use `None` to default to the Filesystem compression type.
                 Default Filesystem compression is no compression.
         """
-        with self._get_file(file, mode, encoding, compression or self.compression).open() as open_file:
-            yield open_file
+        with self.ftype(self, file, mode=mode, encoding=encoding, compression=compression or self.compression) as _file:
+            yield _file
 
 
 class LocalFile(File):
     """File-like object on a local filesystem."""
 
-    __slots__ = (
-        "_file",
-        "safe_path",
-    )
+    __slots__ = ("_file",)
 
     def __init__(  # pylint: disable=too-many-arguments
         self,
@@ -282,7 +293,6 @@ class LocalFile(File):
         mode: str = "rt",
         encoding: str = "utf-8",
         compression: str = NO_COMPRESSION,
-        safe_path: bool = True,
     ) -> None:
         """Initialize the base attributes of the local file for read and write operations.
 
@@ -292,49 +302,39 @@ class LocalFile(File):
             mode: Options used to open the file.
             encoding: Name of the encoding used to decode or encode the file when in text mode.
             compression: Type of compression used when reading or writing the file contents.
-            safe_path: Whether safety checks are performed to prevent path escape attempts from filesystem directory.
-                If paths are guaranteed to be safe, disable to maximize performance.
         """
         # Left strip to ensure that absolute paths are treated as relative, so that the filesystem directory is root.
-        super().__init__(filesystem, file.lstrip(os.path.sep), mode=mode, encoding=encoding, compression=compression)
+        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression)
         self.filesystem: LocalFilesystem = filesystem  # Set again with typehint to avoid lint warnings.
         self._file = None
-        self.safe_path = safe_path
 
     @override
-    def __repr__(self) -> str:
-        return os.path.abspath(os.path.join(self.filesystem.directory, self.file.lstrip(os.path.sep)))
+    def __str__(self) -> str:
+        # Use relative path within filesystem to avoid exposing full path in case it contains sensitive information.
+        return self.file.replace(self.filesystem.directory, "")
 
     @override
-    def close(self) -> None:
+    def _close(self) -> None:
         self._file.close()
         self._file = None
 
     @override
-    @contextmanager
-    def open(self) -> File:
+    def _open(self) -> None:
         # Do not call super full open checks, they will be performed by the native file open operation with local files.
         mode = self.mode
         if "t" not in mode and "b" not in mode:
             mode = f"{mode}t"
 
-        path = os.path.join(self.filesystem.directory, self.file)
-        if self.safe_path:
-            path = os.path.abspath(path)
-
-        # Validate final path to file, and treat as not found if invalid.
-        if not path.startswith(self.filesystem.directory):
-            raise FileNotFoundError(1, f"No such file: {self}")
         encoding = self.encoding
         if self.compression:
             # Force the mode to binary to allow utilizing native open operation to read/write compressed data.
             mode = mode.replace("t", "b")
             encoding = None
-        self._file = open(path, mode, encoding=encoding)
-        try:
-            yield self
-        finally:
-            self.close()
+        self._file = open(self.file, mode, encoding=encoding)  # pylint: disable=consider-using-with
+
+    @override
+    def _read(self) -> bytes | str:
+        return self._file.read()
 
     @override
     def _read_checks(self) -> None:
@@ -342,12 +342,13 @@ class LocalFile(File):
         pass
 
     @override
-    def _read(self) -> bytes | str:
-        return self._file.read()
-
-    @override
     def _write(self, data: bytes | str) -> int:
         return self._file.write(data)
+
+    @override
+    def _write_checks(self, content: bytes | str) -> None:
+        # No checks are needed for local files, they will raise directly from native code.
+        pass
 
 
 class LocalFilesystem(Filesystem):
@@ -368,13 +369,28 @@ class LocalFilesystem(Filesystem):
             safe_paths: Whether safety checks are performed to prevent path escape attempts from filesystem directory.
                 If paths are guaranteed to be safe, disable to maximize performance.
         """
-        super().__init__(compression=compression)
+        super().__init__(LocalFile, compression=compression)
+        self.ftype = LocalFile  # Set again to avoid lint errors.
         self.directory = os.path.abspath(directory)
         self.safe_paths = safe_paths
 
     @override
-    def _get_file(self, file: str, mode: str, encoding: str, compression: str) -> File:
-        return LocalFile(self, file, mode=mode, encoding=encoding, compression=compression, safe_path=self.safe_paths)
+    @contextmanager
+    def open(
+        self,
+        file: str,
+        mode: str = "rt",
+        encoding: str = "utf-8",
+        compression: str | None = None,
+    ) -> File:
+        path = os.path.abspath(os.path.join(self.directory, file.lstrip(os.path.sep)))
+        if self.safe_paths:
+            # Validate final path to file, and treat as not found if attempting to escape the root.
+            if not path.startswith(self.directory):
+                raise FileNotFoundError(1, f"No such file: {self}")
+
+        with self.ftype(self, path, mode=mode, encoding=encoding, compression=compression or self.compression) as _file:
+            yield _file
 
 
 class MemFile(File):
@@ -401,11 +417,6 @@ class MemFile(File):
         self.filesystem: MemFilesystem = filesystem  # Set again with typehint to avoid lint warnings.
 
     @override
-    def close(self) -> None:
-        # No action required for in memory files.
-        pass
-
-    @override
     def _read(self) -> bytes | str:
         return self.filesystem.tree.get(self.file)
 
@@ -413,7 +424,7 @@ class MemFile(File):
     def _read_checks(self) -> None:
         if "r" in self.mode and self.file not in self.filesystem.tree:
             raise FileNotFoundError(2, f"No such file: '{self.file}'")
-        self._read_checks()
+        super()._read_checks()
 
     @override
     def _write(self, data: bytes | str) -> int:
@@ -436,12 +447,8 @@ class MemFilesystem(Filesystem, metaclass=abc.ABCMeta):
             compression: Default compression type to use when reading or writing file contents.
                 Use basic string name to load from default compressor cache.
         """
-        super().__init__(compression=compression)
+        super().__init__(MemFile, compression=compression)
         self.tree = tree or {}
-
-    @override
-    def _get_file(self, file: str, mode: str, encoding: str, compression: str) -> File:
-        return MemFile(self, file, mode=mode, encoding=encoding, compression=compression)
 
 
 class S3BotoFile(File):
@@ -477,11 +484,6 @@ class S3BotoFile(File):
     @override
     def __repr__(self) -> str:
         return f"{self.filesystem.bucket_name}:{self.file}"
-
-    @override
-    def close(self) -> None:
-        # No action required for S3 files.
-        pass
 
     @override
     def _read(self) -> bytes | str:
@@ -538,7 +540,7 @@ class S3BotoFilesystem(Filesystem):
             compression: Default compression type to use when reading or writing file contents.
                 Use basic string name to load from default compressor cache.
         """
-        super().__init__(compression=compression)
+        super().__init__(S3BotoFile, compression=compression)
         try:
             # pylint: disable=import-outside-toplevel,invalid-name
             import boto3
@@ -556,10 +558,6 @@ class S3BotoFilesystem(Filesystem):
             profile_name=profile_name,
         )
         self.client = self._session.client("s3")
-
-    @override
-    def _get_file(self, file: str, mode: str, encoding: str, compression: str) -> File:
-        return S3BotoFile(self, file, mode=mode, encoding=encoding, compression=compression)
 
 
 class SQLiteFile(File):
@@ -588,11 +586,6 @@ class SQLiteFile(File):
     @override
     def __repr__(self) -> str:
         return f"sqlite3://{self.filesystem.database}?table_name={self.filesystem.table_name}&file={self.file}"
-
-    @override
-    def close(self) -> None:
-        # No action required for database files.
-        pass
 
     @override
     def _read(self) -> bytes | str:
@@ -637,7 +630,7 @@ class SQLiteFilesystem(Filesystem):
         ):
             if not re.match(r"^[A-za-z0-9_]+$", value):
                 raise ValueError(f"{name} may only contain letters, numbers, and underscores.")
-        super().__init__(compression=compression)
+        super().__init__(SQLiteFile, compression=compression)
         try:
             # pylint: disable=import-outside-toplevel,redefined-outer-name,reimported
             import sqlite3
@@ -680,10 +673,6 @@ class SQLiteFilesystem(Filesystem):
             The cursor used to execute the statement, allowing caller to fetch results.
         """
         return self._cursor.execute(sql, params)
-
-    @override
-    def _get_file(self, file: str, mode: str, encoding: str, compression: str) -> SQLiteFile:
-        return SQLiteFile(self, file, mode=mode, encoding=encoding, compression=compression)
 
 
 def init_compressors() -> list[str]:

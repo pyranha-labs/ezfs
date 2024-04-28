@@ -28,9 +28,10 @@ the primary `File`, `Filesystem`, and `Compressor` adapters.
   * [Getting Started](#getting-started)
     * [Installation](#installation)
   * [How Tos](#how-tos)
-    * [Write a file with compress](#write-a-file-with-compression)
-    * [Read a file with compress](#read-a-file-with-compression)
-    * [Access a file (object) in an S3 bucket, and use compression](#access-a-file-object-in-an-s3-bucket-and-use-compression)
+    * [Write a file with compression](#write-a-file-with-compression)
+    * [Read a file with compression](#read-a-file-with-compression)
+    * [Swap between filesystem types](#swap-between-filesystem-types-local-file-to-local-db)
+    * [Access a file in an S3 bucket](#access-a-file-object-in-an-s3-bucket-and-use-compression)
   * [Why EZFS?](#why-ezfs)
     * [What does EZFS provide?](#what-does-ezfs-provide)
     * [What does EZFS not provide?](#what-does-ezfs-not-provide)
@@ -45,7 +46,7 @@ the primary `File`, `Filesystem`, and `Compressor` adapters.
 - Supports multiple compression types
   - `bz2`, `gzip`, `lzma` (when built into Python)
   - `blosc`, `brotli`, `lz4`, `snappy`, and `zstd` (when installed separately)
-- Support multiple storage types
+- Supports multiple storage types
   - `sqlite3` (when built into Python)
   - `S3` (when installed separately)
 - Theoretically any compression type, or backend storage type, by extending `Compressor`, `File`, and `Filesystem` 
@@ -118,6 +119,20 @@ with filesystem.open('test-file.txt.gz', compression='gzip') as in_file:
 filesystem = ezfs.LocalFilesystem('/tmp', compression='gzip')
 with filesystem.open('test-file.txt.gz') as in_file:
     print(in_file.read())
+```
+
+### Swap between filesystem types (local file to local db)
+```python
+import ezfs
+
+# Only a change is needed from local folder:
+filesystem = ezfs.LocalFilesystem('/tmp')
+# To a local database file:
+filesystem = ezfs.SQLiteFilesystem('/tmp/tmp.db')
+
+# No change is needed to open/read/write operations:
+with filesystem.open('test-file.txt.gz', 'w+', compression='gzip') as out_file:
+    out_file.write('test message')
 ```
 
 ### Access a file (object) in an S3 bucket, and use compression
