@@ -2,15 +2,24 @@
 
 The backend storage for File objects may use any system, virtual or physical,
 provided it can implement read, write, open, and close operations. Mode support varies
-based on implementations. All types should support "r", "w", "b" and "t" at a minimum.
+based on implementations.
 
-Compression is also supported natively by the Filesystem and File adapters. At open time,
-a compression type can be specified, and it will be used to read/write file contents.
-Compression support will vary by system. Compressors will automatically be detected
-the first time a Filesystem is created, or `init_compressors()` can be called manually.
+Filesystem objects also provide common convenience methods based on `os` and `os.path`
+for managing files, but support varies based on implementation.
 
-No additional functionality is guaranteed by File objects in order to maintain
-simplicity and consistency across all forms of storage.
+Compression is also supported natively by the Filesystem and File adapters. A compression
+type can be specified at open time, and it will be used to read/write file contents.
+Compression support varies by system, and is automatically detected on Filesystem creation.
+
+Guaranteed functionality:
+- File
+    - Modes: "r", "w", "b" and "t"
+    - Methods: `open()`, `read()`, and `write()`
+- Filesystem
+    - Methods: `open()`, `exists()`, `isfile()`, and `remove()`
+
+No additional functionality is guaranteed by File or Filesystem objects in order to maintain
+simplicity and consistency across all forms of storage, regardless of storage backend.
 
 Includes the following basic adapters that can used directly, or as examples for more complex implementations:
 - Local storage
@@ -22,11 +31,13 @@ Includes the following basic adapters that can used directly, or as examples for
 from __future__ import annotations
 
 import abc
+import importlib
 import os
 import re
 import typing
 from contextlib import contextmanager
 from io import UnsupportedOperation
+from os import PathLike
 from types import ModuleType
 from types import TracebackType
 from typing import Callable
@@ -58,11 +69,7 @@ if typing.TYPE_CHECKING:
 __version__ = "1.0.1"
 # Compressors may either be a module, or subclass of Compressor,
 # with `compress()` and `decompress()` functions.
-__COMPRESSORS__: dict[str, Compressor | ModuleType | None] = {
-    None: None,
-    "none": None,
-}
-__COMPRESSOR_SETUP_COMPLETE__ = False
+__COMPRESSORS__: dict[str, Compressor | ModuleType | None] = {}
 NO_COMPRESSION = "none"
 
 
@@ -256,7 +263,7 @@ class Filesystem(metaclass=abc.ABCMeta):
         """
         self.ftype = file_type
         self.compression = compression
-        if not __COMPRESSOR_SETUP_COMPLETE__:
+        if not __COMPRESSORS__:
             init_compressors()
 
     @contextmanager
@@ -279,6 +286,59 @@ class Filesystem(metaclass=abc.ABCMeta):
         """
         with self.ftype(self, file, mode=mode, encoding=encoding, compression=compression or self.compression) as _file:
             yield _file
+
+    def exists(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
+        """Check whether path refers to an existing location in the filesystem.
+
+        Behavior mirrors `os.path.exists()` as closely as possible if supported by the filesystem.
+
+        Args:
+            path: Location of the file in the filesystem.
+
+        Returns:
+            True if the path is found, False otherwise.
+        """
+        return self.isfile(path)
+
+    @abc.abstractmethod
+    def isfile(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
+        """Check if path is a regular file.
+
+        Behavior mirrors `os.path.isfile()` as closely as possible if supported by the filesystem.
+
+        Args:
+            path: Location of the file in the filesystem.
+
+        Returns:
+            True if the path is a regular file, False otherwise.
+        """
+
+    @abc.abstractmethod
+    def _remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
+        """Remove (delete) the file path."""
+
+    def remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
+        """Remove (delete) the file path.
+
+        Behavior mirrors `os.remove()` as closely as possible if supported by the filesystem.
+
+        Args:
+            path: Location of the file in the filesystem.
+            dir_fd: File descriptor open to a directory, which will change path to be relative to that directory.
+
+        Raises:
+            FileNotFoundError if path is not found.
+            OSError if path is a directory.
+            NotImplementedError if dir_fd is used and not available for the platform or Filesystem.
+        """
+        if dir_fd is not None:
+            # Non-local filesystems do not support dir_fd. Default to not allowing.
+            raise NotImplementedError(f"dir_fd is not supported by {self.__class__.__name__}")
+        if not self.exists(path):
+            raise FileNotFoundError(2, f"No such file or directory: {path}")
+        if not self.isfile(path):
+            raise OSError(1, f"Operation not permitted: {path}")
+        self._remove(path, dir_fd=dir_fd)
 
 
 class LocalFile(File):
@@ -387,10 +447,27 @@ class LocalFilesystem(Filesystem):
         if self.safe_paths:
             # Validate final path to file, and treat as not found if attempting to escape the root.
             if not path.startswith(self.directory):
-                raise FileNotFoundError(1, f"No such file: {self}")
+                raise FileNotFoundError(2, f"No such file or directory: {file}")
 
         with self.ftype(self, path, mode=mode, encoding=encoding, compression=compression or self.compression) as _file:
             yield _file
+
+    @override
+    def exists(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
+        return os.path.exists(path)
+
+    @override
+    def isfile(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
+        return os.path.isfile(path)
+
+    @override
+    def _remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
+        os.remove(path, dir_fd=dir_fd)
+
+    @override
+    def remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
+        # Bypass base remove() checks to allow support for dir_fd.
+        self._remove(path, dir_fd=dir_fd)
 
 
 class MemFile(File):
@@ -432,7 +509,7 @@ class MemFile(File):
         return len(data)
 
 
-class MemFilesystem(Filesystem, metaclass=abc.ABCMeta):
+class MemFilesystem(Filesystem):
     """Collection of file-like objects available in an in-memory filesystem."""
 
     def __init__(
@@ -449,6 +526,14 @@ class MemFilesystem(Filesystem, metaclass=abc.ABCMeta):
         """
         super().__init__(MemFile, compression=compression)
         self.tree = tree or {}
+
+    @override
+    def isfile(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
+        return str(path) in self.tree
+
+    @override
+    def _remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
+        self.tree.pop(str(path))
 
 
 class S3BotoFile(File):
@@ -493,7 +578,7 @@ class S3BotoFile(File):
         except self.filesystem.ClientError as client_error:
             # For consistency across File types, change missing objects errors to standard FileNotFoundErrors.
             if client_error.response["Error"]["Code"] == "NoSuchKey":
-                raise FileNotFoundError(1, f"No such file: {self}") from client_error
+                raise FileNotFoundError(2, f"No such file: {self}") from client_error
             raise client_error
         return content
 
@@ -558,6 +643,21 @@ class S3BotoFilesystem(Filesystem):
             profile_name=profile_name,
         )
         self.client = self._session.client("s3")
+
+    @override
+    def isfile(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
+        isfile = True
+        try:
+            self.client.head_object(Bucket=self.bucket_name, Key=str(path))
+        except self.ClientError as client_error:
+            if not client_error.response["Error"]["Code"] == "404":
+                raise
+            isfile = False
+        return isfile
+
+    @override
+    def _remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
+        self.client.delete_object(Bucket=self.bucket_name, Key=str(path))
 
 
 class SQLiteFile(File):
@@ -653,6 +753,8 @@ class SQLiteFilesystem(Filesystem):
             f"INSERT INTO {table_name}({file_col}, {content_col}) VALUES(?, ?) "  # nosec
             f"ON CONFLICT({file_col}) DO UPDATE SET {content_col}=?;"
         )
+        self.exists_query = f"SELECT {file_col} FROM {table_name} WHERE {file_col}=(?) LIMIT 1;"  # nosec
+        self.remove_query = f"DELETE FROM {table_name} WHERE {file_col}=(?);"  # nosec
 
     def commit(self) -> None:
         """Commit any pending transactions to the database backend."""
@@ -674,6 +776,21 @@ class SQLiteFilesystem(Filesystem):
         """
         return self._cursor.execute(sql, params)
 
+    @override
+    def isfile(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
+        isfile = True
+        res = self.execute(self.exists_query, (str(path),)).fetchone()
+        if res is None:
+            isfile = False
+        return isfile
+
+    @override
+    def _remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
+        res = self.execute(self.remove_query, (str(path),))
+        self.commit()
+        if res is None:
+            raise FileNotFoundError(2, f"No such file: '{path}'")
+
 
 def init_compressors() -> list[str]:
     """Search the system for available compression algorithms.
@@ -681,60 +798,23 @@ def init_compressors() -> list[str]:
     Returns:
         List of the available compression types for reading and writing files.
     """
-    global __COMPRESSOR_SETUP_COMPLETE__  # pylint: disable=global-statement
-    __COMPRESSOR_SETUP_COMPLETE__ = True
-
-    # pylint: disable=import-outside-toplevel
-    # Builtin compression modules.
-    try:
-        import bz2
-
-        __COMPRESSORS__["bz2"] = bz2
-    except ModuleNotFoundError:
-        pass
-    try:
-        import gzip
-
-        __COMPRESSORS__["gzip"] = gzip
-    except ModuleNotFoundError:
-        pass
-    try:
-        import lzma
-
-        __COMPRESSORS__["lzma"] = lzma
-    except ModuleNotFoundError:
-        pass
-
-    # Third-party compression modules.
-    try:
-        import blosc
-
-        __COMPRESSORS__["blosc"] = blosc
-    except ModuleNotFoundError:
-        pass
-    try:
-        import brotli
-
-        __COMPRESSORS__["brotli"] = brotli
-    except ModuleNotFoundError:
-        pass
-    try:
-        import lz4.frame
-
-        __COMPRESSORS__["lz4"] = lz4.frame
-    except ModuleNotFoundError:
-        pass
-    try:
-        import snappy
-
-        __COMPRESSORS__["snappy"] = snappy
-    except ModuleNotFoundError:
-        pass
-    try:
-        import zstandard
-
-        __COMPRESSORS__["zstd"] = zstandard
-    except ModuleNotFoundError:
-        pass
-
+    __COMPRESSORS__.update({None: None, NO_COMPRESSION: None})
+    libs = (
+        # Builtin compression modules.
+        ("bz2",),
+        ("gzip",),
+        ("lzma",),
+        # Third-party compression modules.
+        ("blosc",),
+        ("brotli",),
+        ("lz4", "lz4.frame"),
+        ("snappy",),
+        ("zstd", "zstandard"),
+    )
+    for lib in libs:
+        name, module_name = lib if len(lib) == 2 else (lib[0], lib[0])  # pylint: disable=unbalanced-tuple-unpacking
+        try:
+            __COMPRESSORS__[name] = importlib.import_module(module_name)
+        except ImportError:
+            pass
     return sorted(set(str(key).lower() for key in __COMPRESSORS__))
