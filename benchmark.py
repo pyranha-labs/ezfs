@@ -1,3 +1,5 @@
+#! /usr/bin/env python3
+
 """Simple benchmarks to compare performance of related calls."""
 
 import argparse
@@ -8,10 +10,11 @@ from typing import Iterable
 
 import ezfs
 
+COL_WIDTH = 32
+
 TEST_FILE_NAME = "compression.test"
 TEST_STRING = '"Test string content for storage in file that is 64 bytes long."'
 TEST_STRING_BINARY = TEST_STRING.encode("utf-8")
-COL_WIDTH = 24
 
 
 def _bench_all(tests: list[tuple], number: int = 1, repeat: int = 1) -> None:
@@ -19,10 +22,37 @@ def _bench_all(tests: list[tuple], number: int = 1, repeat: int = 1) -> None:
         _bench_func(func, args, number, repeat, test_suffix=suffix)
 
 
-def _bench_func(func: Callable, args: Iterable, number: int, repeat: int, test_suffix: str = "") -> None:
+def _bench_func(
+    func: Callable,
+    args: Iterable,
+    number: int,
+    repeat: int,
+    test_suffix: str = "",
+) -> None:
+    test_suffix = f"_{test_suffix}" if test_suffix else ""
     result = timeit.repeat(lambda: func(*args), number=number, repeat=repeat)
     for duration in result:
         print(f"{func.__name__.replace('_bench_', '') + test_suffix:<{COL_WIDTH}}", _format_time(duration))
+
+
+def _bench_ezfs_filesystem(
+    filesystem: ezfs.Filesystem,
+    fs_type: str,
+    compression_types: Iterable[str],
+    number: int,
+    repeat: int,
+) -> None:
+    for compression in compression_types:
+        compressor = ezfs.__COMPRESSORS__[compression]
+        if not compressor or compressor == ezfs.NO_COMPRESSION:
+            continue
+        tests = [
+            (_bench_ezfs_write, (filesystem, "wb", compression, TEST_STRING_BINARY), f"{fs_type}_{compression}_binary"),
+            (_bench_ezfs_write, (filesystem, "wt", compression, TEST_STRING), f"{fs_type}_{compression}_text"),
+            (_bench_ezfs_read, (filesystem, "rb", compression), f"{fs_type}_{compression}_binary"),
+            (_bench_ezfs_read, (filesystem, "rt", compression), f"{fs_type}_{compression}_text"),
+        ]
+        _bench_all(tests, number, repeat)
 
 
 def _bench_ezfs_read(filesystem: ezfs.Filesystem, mode: str, compression: str) -> bytes:
@@ -33,6 +63,30 @@ def _bench_ezfs_read(filesystem: ezfs.Filesystem, mode: str, compression: str) -
 def _bench_ezfs_write(filesystem: ezfs.Filesystem, mode: str, compression: str, content: str | bytes) -> int:
     with filesystem.open(TEST_FILE_NAME, mode, compression=compression) as file:
         return file.write(content)
+
+
+def _bench_native_filesystem(
+    compression_types: Iterable[str],
+    number: int,
+    repeat: int,
+) -> None:
+    disable_open = (
+        "blosc",
+        "brotli",
+        "snappy",
+    )
+    for compression in compression_types:
+        compressor = ezfs.__COMPRESSORS__[compression]
+        if not compressor or compressor == ezfs.NO_COMPRESSION:
+            continue
+        if compression not in disable_open:
+            tests = [
+                (_bench_native_write, (compressor, "wb", TEST_STRING_BINARY), f"{compression}_binary"),
+                (_bench_native_write, (compressor, "wt", TEST_STRING), f"{compression}_text"),
+                (_bench_native_read, (compressor, "rb"), f"{compression}_binary"),
+                (_bench_native_read, (compressor, "rt"), f"{compression}_text"),
+            ]
+            _bench_all(tests, number, repeat)
 
 
 def _bench_native_read(opener: ModuleType, mode: str) -> bytes:
@@ -65,7 +119,14 @@ def _parse_args() -> argparse.Namespace:
         "-c",
         "--compression",
         nargs="+",
-        help="Compression types to test. Available options depend on compression initialization checks.",
+        help="Compression type(s) to test. Available options depend on compression initialization checks.",
+    )
+    parser.add_argument(
+        "-f",
+        "--filesystem",
+        nargs="+",
+        choices=["native", "local", "memory", "sqlite"],
+        help="Filesystem type(s) to test.",
     )
     parser.add_argument(
         "-n",
@@ -82,10 +143,10 @@ def _parse_args() -> argparse.Namespace:
         help="Number of times to repeat the test loop.",
     )
     parser.add_argument(
-        "-e",
-        "--ezfs-only",
+        "-m",
+        "--memory",
         action="store_true",
-        help="Only run EZFS adapter tests. Do not run tests that use open() directly from compression modules.",
+        help="Use in-memory storge instead of local for filesystems that support both. Default uses local storage.",
     )
     return parser.parse_args()
 
@@ -95,54 +156,47 @@ def main() -> None:
     args = _parse_args()
     number = args.number
     repeat = args.repeat
-
-    filesystem = ezfs.LocalFilesystem(".")
-    # filesystem = ezfs.MemFilesystem()
-    # filesystem = ezfs.S3BotoFilesystem(
-    #     "bucket-name",
-    #     access_key_id="accesskey",
-    #     secret_access_key="secretkey",
-    # )
-    # filesystem = ezfs.SQLiteFilesystem(f"{TEST_FILE_NAME}.db")
-    # filesystem.create_table()
+    fs_types = args.filesystem or [
+        "native",
+        "local",
+    ]
 
     compressors = ezfs.init_compressors()
     selected = args.compression or compressors
 
-    print(f'{"All compression types:":<{COL_WIDTH}}', ", ".join(compressors))
-    print(f'{"Selected types:":<{COL_WIDTH}}', ", ".join(selected) if selected != compressors else "all")
-    print(f'{"Count:":<{COL_WIDTH}}', number)
-    print(f'{"Repeat:":<{COL_WIDTH}}', repeat)
+    print(f'{"Available compression types:":<{COL_WIDTH}}', ", ".join(compressors))
+    print(f'{"Selected compression types:":<{COL_WIDTH}}', ", ".join(selected) if selected != compressors else "all")
+    print(f'{"Selected filesystem types:":<{COL_WIDTH}}', ", ".join(fs_types))
+    print(f'{"Test iterations per loop:":<{COL_WIDTH}}', number)
+    print(f'{"Test loops:":<{COL_WIDTH}}', repeat)
     print()
 
-    disable_open = (
-        "blosc",
-        "brotli",
-        "snappy",
-    )
-    for suffix in selected:
-        compressor = ezfs.__COMPRESSORS__[suffix]
-        if not compressor or compressor == ezfs.NO_COMPRESSION:
-            continue
-        tests = []
-        if suffix not in disable_open and not args.ezfs_only:
-            tests.extend(
-                [
-                    (_bench_native_write, (compressor, "wb", TEST_STRING_BINARY), f"_{suffix}_binary"),
-                    (_bench_native_write, (compressor, "wt", TEST_STRING), f"_{suffix}_text"),
-                    (_bench_native_read, (compressor, "rb"), f"_{suffix}_binary"),
-                    (_bench_native_read, (compressor, "rt"), f"_{suffix}_text"),
-                ]
-            )
-        tests.extend(
-            [
-                (_bench_ezfs_write, (filesystem, "wb", suffix, TEST_STRING_BINARY), f"_{suffix}_binary"),
-                (_bench_ezfs_write, (filesystem, "wt", suffix, TEST_STRING), f"_{suffix}_text"),
-                (_bench_ezfs_read, (filesystem, "rb", suffix), f"_{suffix}_binary"),
-                (_bench_ezfs_read, (filesystem, "rt", suffix), f"_{suffix}_text"),
-            ]
-        )
-        _bench_all(tests, number, repeat)
+    if "native" in fs_types:
+        fs_types.remove("native")
+        _bench_native_filesystem(selected, number, repeat)
+
+    for fs_type in fs_types:
+        filesystem = None
+        if fs_type == "local":
+            filesystem = ezfs.LocalFilesystem(".")
+        elif fs_type == "memory":
+            filesystem = ezfs.MemFilesystem()
+        elif fs_type == "sqlite":
+            filesystem = ezfs.SQLiteFilesystem(":memory:" if args.memory else f"{TEST_FILE_NAME}.db")
+            import sqlite3
+
+            try:
+                filesystem.create_table()
+            except sqlite3.OperationalError as error:
+                if "already exists" not in str(error):
+                    raise
+        # filesystem = ezfs.S3BotoFilesystem(
+        #     "bucket-name",
+        #     access_key_id="accesskey",
+        #     secret_access_key="secretkey",
+        # )
+        if filesystem:
+            _bench_ezfs_filesystem(filesystem, fs_type, selected, number, repeat)
 
 
 if __name__ == "__main__":
