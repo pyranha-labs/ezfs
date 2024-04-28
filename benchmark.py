@@ -1,5 +1,6 @@
 """Simple benchmarks to compare performance of related calls."""
 
+import argparse
 import timeit
 from types import ModuleType
 from typing import Callable
@@ -58,8 +59,43 @@ def _format_time(duration: float) -> str:
             return "%.*g %s" % (3, duration / scale, unit)
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Simple compression benchmark tests.")
+    parser.add_argument(
+        "-c",
+        "--compression",
+        nargs="+",
+        help="Compression types to test. Available options depend on compression initialization checks.",
+    )
+    parser.add_argument(
+        "-n",
+        "--number",
+        type=int,
+        default=25_000,
+        help="Number of iterations to run per test loop.",
+    )
+    parser.add_argument(
+        "-r",
+        "--repeat",
+        type=int,
+        default=1,
+        help="Number of times to repeat the test loop.",
+    )
+    parser.add_argument(
+        "-e",
+        "--ezfs-only",
+        action="store_true",
+        help="Only run EZFS adapter tests. Do not run tests that use open() directly from compression modules.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     """Run all the selected benchmarks."""
+    args = _parse_args()
+    number = args.number
+    repeat = args.repeat
+
     filesystem = ezfs.LocalFilesystem(".")
     # filesystem = ezfs.MemFilesystem()
     # filesystem = ezfs.S3BotoFilesystem(
@@ -70,30 +106,26 @@ def main() -> None:
     # filesystem = ezfs.SQLiteFilesystem(f"{TEST_FILE_NAME}.db")
     # filesystem.create_table()
 
-    number = 25000
-    repeat = 1
-    print(f'{"Compression types:":<{COL_WIDTH}}', ", ".join(ezfs.init_compressors()))
+    compressors = ezfs.init_compressors()
+    selected = args.compression or compressors
+
+    print(f'{"All compression types:":<{COL_WIDTH}}', ", ".join(compressors))
+    print(f'{"Selected types:":<{COL_WIDTH}}', ", ".join(selected) if selected != compressors else "all")
     print(f'{"Count:":<{COL_WIDTH}}', number)
     print(f'{"Repeat:":<{COL_WIDTH}}', repeat)
-    compressors = ezfs.__COMPRESSORS__
-    test_suites = [
-        (compressors.get("bz2"), "bz2"),
-        (compressors.get("gzip"), "gzip"),
-        (compressors.get("lzma"), "lzma"),
-        (compressors.get("blosc"), "blosc", False),
-        (compressors.get("brotli"), "brotli", False),
-        (compressors.get("lz4"), "lz4"),
-        (compressors.get("snappy"), "snappy", False),
-        (compressors.get("zstd"), "zstd"),
-    ]
-    for test_suite in test_suites:
-        compressor = test_suite[0]
-        if not compressor:
+    print()
+
+    disable_open = (
+        "blosc",
+        "brotli",
+        "snappy",
+    )
+    for suffix in selected:
+        compressor = ezfs.__COMPRESSORS__[suffix]
+        if not compressor or compressor == ezfs.NO_COMPRESSION:
             continue
-        suffix = test_suite[1]
-        native_open_tests = test_suite[2] if len(test_suite) > 2 else True
         tests = []
-        if native_open_tests:
+        if suffix not in disable_open and not args.ezfs_only:
             tests.extend(
                 [
                     (_bench_native_write, (compressor, "wb", TEST_STRING_BINARY), f"_{suffix}_binary"),
