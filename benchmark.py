@@ -103,10 +103,10 @@ def _bench_native_read(opener: ModuleType, mode: str) -> bytes:
 
 def _bench_native_read_manual(compressor: ModuleType, mode: str) -> bytes:
     # Alternative version of _bench_native_read with manual file open and read, due to compressor missing open alias.
-    with open(TEST_FILE_NAME, 'rb') as file:
+    with open(TEST_FILE_NAME, "rb") as file:
         data = compressor.decompress(file.read())
-        if 't' in mode:
-            data = data.decode('utf-8')
+        if "t" in mode:
+            data = data.decode("utf-8")
         return data
 
 
@@ -117,9 +117,9 @@ def _bench_native_write(opener: ModuleType, mode: str, content: str | bytes) -> 
 
 def _bench_native_write_manual(compressor: ModuleType, mode: str, content: str | bytes) -> int:
     # Alternative version of _bench_native_write with manual file open and write, due to compressor missing open alias.
-    with open(TEST_FILE_NAME, 'wb') as file:
+    with open(TEST_FILE_NAME, "wb") as file:
         if "t" in mode:
-            content = content.encode('utf-8')
+            content = content.encode("utf-8")
         return file.write(compressor.compress(content))
 
 
@@ -132,9 +132,12 @@ def _format_time(duration: float) -> str:
     }
     scales = [(scale, unit) for unit, scale in units.items()]
     scales.sort(reverse=True)
+    result = None
     for scale, unit in scales:
         if duration >= scale:
-            return "%.*g %s" % (3, duration / scale, unit)
+            result = f"{duration / scale:.2f} {unit}"
+            break
+    return result
 
 
 def _parse_args() -> argparse.Namespace:
@@ -172,11 +175,18 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use in-memory storge instead of local for filesystems that support both. Default uses local storage.",
     )
+    parser.add_argument(
+        "-i",
+        "--input-file",
+        help="Load text from the specified plaintext file to test, instead of using the default test string.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     """Run all the selected benchmarks."""
+    global TEST_STRING, TEST_STRING_BINARY  # pylint: disable=global-statement
+
     args = _parse_args()
     number = args.number
     repeat = args.repeat
@@ -193,7 +203,16 @@ def main() -> None:
     print(f'{"Selected filesystem types:":<{COL_WIDTH}}', ", ".join(fs_types))
     print(f'{"Test iterations per loop:":<{COL_WIDTH}}', number)
     print(f'{"Test loops:":<{COL_WIDTH}}', repeat)
+    print(f'{"Test content:":<{COL_WIDTH}}', args.input_file or TEST_STRING)
     print()
+
+    if args.input_file:
+        try:
+            with open(args.input_file, "rt", encoding="utf-8") as file:
+                TEST_STRING = file.read()
+                TEST_STRING_BINARY = TEST_STRING.encode("utf-8")
+        except Exception as error:
+            raise SystemExit(f"Failed to load input file: {error}") from error
 
     if "native" in fs_types:
         fs_types.remove("native")
@@ -207,7 +226,7 @@ def main() -> None:
             filesystem = ezfs.MemFilesystem()
         elif fs_type == "sqlite":
             filesystem = ezfs.SQLiteFilesystem(":memory:" if args.memory else f"{TEST_FILE_NAME}.db")
-            import sqlite3
+            import sqlite3  # pylint: disable=import-outside-toplevel
 
             try:
                 filesystem.create_table()
