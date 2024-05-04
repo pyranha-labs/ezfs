@@ -134,7 +134,7 @@ with filesystem.open('test-file.txt.gz') as in_file:
 ```python
 import ezfs
 
-# Only a change is needed from local folder:
+# Only a single change is needed, such as from a local folder:
 filesystem = ezfs.LocalFilesystem('/tmp')
 # To a local database file:
 filesystem = ezfs.SQLiteFilesystem('/tmp/tmp.db')
@@ -187,7 +187,7 @@ with or without compression. The backend for the storage can often be changed wi
 without changing the rest of the code.
 
 EZFS does not provide a complex feature set for advanced use cases, such as managing permissions or other metadata
-on filesystems. EZFS also not provide streaming interfaces for processing larger than memory files in "chunks".
+on filesystems. EZFS also does not provide streaming interfaces for processing larger than memory files in "chunks".
 The following is a list of common file/filesystem operations, whether they are supported out-of-the-box, whether
 they are supported with advanced installs (extras), and whether they are optimized/simplified by EZFS.
 
@@ -222,7 +222,7 @@ they are supported with advanced installs (extras), and whether they are optimiz
 | File streaming        | ❌   | ❌      | -         | -          |
 | File seeking          | ❌   | ❌      | -         | -          |
 
-¹ Depends on whether Python was built with it  
+¹ Depends on how Python was built
 ² Depends on compression module used  
 ³ Depends on the backend used
 
@@ -260,9 +260,9 @@ EZFS may be a better fit. Still not sure? Continue reading for a performance exa
 
 ### Optimized Remote Filesystem Example
 
-Here is a basic performance example, using S3 + `pandas` to store DataFrames. By using a Filesystem adapter
-to store the results, it can optimize the S3 client used to reduce networking overhead. The optimization benefit
-is greater with small files, but even larger files benefit, and the simplicity to use stays the same.
+Here is a basic performance example, using S3 + `pandas` to store DataFrames. EZFS can optimize the S3 client used
+to reduce networking overhead, leading to improved performance. The optimization benefit is greater with small files,
+but even larger files benefit, and the simplicity to use stays the same.
 - Small file: 100K
 - Large file: 1M
 - 100 iterations per test
@@ -283,6 +283,6 @@ is greater with small files, but even larger files benefit, and the simplicity t
 
 EZFS is not currently accepting new features. Minor features may be added to improve the native use cases,
 but outside minor changes it will only receive bug fixes and dependency updates. This decision is to ensure
-EZFS will stay focused on its primary goal: stay simple and efficient, by focusing on simple use cases.
+EZFS remains focused on its primary goal: stay simple and efficient, by focusing on simple use cases.
 Feel free to import, fork, copy, etc., to other projects to expand the scope of its ecosystem. Refer to the
-[Contributing Guide](CONTRIBUTING.md) for information on how to contribute to this project.
+[Contributing Guide](CONTRIBUTING.md) for information on how to contribute fixes to this project.
