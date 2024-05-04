@@ -197,9 +197,10 @@ they are supported with advanced installs (extras), and whether they are optimiz
 | read()                | ✅   | -      | ✅         | ✅          |
 | write()               | ✅   | -      | ✅         | ✅          |
 | close()               | ✅   | -      | ✅ ²       | ✅          |
-| remove()              | ✅   | -      | ✅ ³       | ✅          |
 | exists()              | ✅   | -      | ✅ ³       | ✅          |
 | isfile()              | ✅   | -      | ✅ ³       | ✅          |
+| remove()              | ✅   | -      | ✅ ³       | ✅          |
+| rename()              | ✅   | -      | ✅ ³       | ✅          |
 | Memory file storage   | ✅   | ✅      | ✅         | ✅          |
 | S3 file storage       | ❌   | ✅      | ✅         | ✅          |
 | SQLite file storage   | ✅ ¹ | -      | ✅         | ✅          |
@@ -266,16 +267,16 @@ is greater with small files, but even larger files benefit, and the simplicity t
 - Large file: 1M
 - 100 iterations per test
 
-| Scenario               | Write    | Read        |
-|------------------------|----------|-------------|
-| pandas s3fs small raw  | 25 sec   | 15.6 sec    |
-| pandas ezfs small raw  | 16.9 sec | 8.39 sec    |
-| pandas s3fs large raw  | 47.3 sec | 17.9 sec    |
-| pandas ezfs large raw  | 28.7 sec | 11.2 sec    |
-| pandas s3fs small zstd | 20.2 sec | 12 sec      |
-| pandas ezfs small zstd | 12.6 sec | 6.76 sec    |
-| pandas s3fs large zstd | 37.4 sec | 18.1 sec    |
-| pandas ezfs large zstd | 21.5 sec | 11.1 sec    |
+| Scenario               | Write    | Read     |
+|------------------------|----------|----------|
+| pandas s3fs small raw  | 25.0 sec | 15.6 sec |
+| pandas ezfs small raw  | 16.9 sec |  8.3 sec |
+| pandas s3fs large raw  | 47.3 sec | 17.9 sec |
+| pandas ezfs large raw  | 28.7 sec | 11.2 sec |
+| pandas s3fs small zstd | 20.2 sec | 12.0 sec |
+| pandas ezfs small zstd | 12.6 sec |  6.8 sec |
+| pandas s3fs large zstd | 37.4 sec | 18.1 sec |
+| pandas ezfs large zstd | 21.5 sec | 11.1 sec |
 
 
 ### Contributing

@@ -1,27 +1,22 @@
 """Adapters for abstracting backend "file" storage from basic frontend read/write usage.
 
-The backend storage for File objects may use any system, virtual or physical,
-provided it can implement read, write, open, and close operations. Mode support varies
-based on implementations.
+File objects may use any backend storage, virtual or physical, provided it can implement read,
+write, open, and close operations. Mode support varies based on implementation.
 
-Filesystem objects also provide common convenience methods based on `os` and `os.path`
-for managing files, but support varies based on implementation.
+Filesystem objects provide common convenience methods for managing files based on `os` and `os.path`,
+but support varies based on implementation.
 
-Compression is also supported natively by the Filesystem and File adapters. A compression
-type can be specified at open time, and it will be used to read/write file contents.
-Compression support varies by system, and is automatically detected on Filesystem creation.
+Compression can be specified at filesystem creation time, and it will be used to read/write all files,
+or at file open time, for a single file. Available compression types are automatically detected on filesystem creation.
 
 Guaranteed functionality:
-- File
-    - Modes: "r", "w", "b" and "t"
-    - Methods: `open()`, `read()`, and `write()`
-- Filesystem
-    - Methods: `open()`, `exists()`, `isfile()`, and `remove()`
+- File Modes: "r", "w", "b" and "t"
+- File Methods: `open()`, `read()`, and `write()`
+- Filesystem Methods: `open()`, `exists()`, `isfile()`, `remove()`, and `rename()`
 
-No additional functionality is guaranteed by File or Filesystem objects in order to maintain
-simplicity and consistency across all forms of storage, regardless of storage backend.
+No additional functionality is guaranteed by File or Filesystem objects in order to maintain simplicity and consistency.
 
-Includes the following basic adapters that can used directly, or as examples for more complex implementations:
+Includes basic adapters for the following, which can used directly or as examples for more complex implementations:
 - Local storage
 - In-memory storage
 - Remote storage (S3)
@@ -31,6 +26,7 @@ Includes the following basic adapters that can used directly, or as examples for
 from __future__ import annotations
 
 import abc
+import errno
 import importlib
 import os
 import re
@@ -71,6 +67,7 @@ __version__ = "1.0.1"
 # with `compress()` and `decompress()` functions.
 __COMPRESSORS__: dict[str, Compressor | ModuleType | None] = {}
 NO_COMPRESSION = "none"
+Path = str | bytes | PathLike[str] | PathLike[bytes]
 
 
 class Compressor(metaclass=abc.ABCMeta):
@@ -314,10 +311,10 @@ class Filesystem(metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
-    def _remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
+    def _remove(self, path: Path, *, dir_fd: int | None = None) -> None:
         """Remove (delete) the file path."""
 
-    def remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
+    def remove(self, path: Path, *, dir_fd: int | None = None) -> None:
         """Remove (delete) the file path.
 
         Behavior mirrors `os.remove()` as closely as possible if supported by the filesystem.
@@ -332,13 +329,45 @@ class Filesystem(metaclass=abc.ABCMeta):
             NotImplementedError if dir_fd is used and not available for the platform or Filesystem.
         """
         if dir_fd is not None:
-            # Non-local filesystems do not support dir_fd. Default to not allowing.
+            # Non-local filesystems do not support dir_fd. Default to not allowed.
             raise NotImplementedError(f"dir_fd is not supported by {self.__class__.__name__}")
         if not self.exists(path):
-            raise FileNotFoundError(2, f"No such file or directory: {path}")
+            raise FileNotFoundError(errno.ENOENT, f"No such file or directory: {path}")
         if not self.isfile(path):
             raise OSError(1, f"Operation not permitted: {path}")
         self._remove(path, dir_fd=dir_fd)
+
+    @abc.abstractmethod
+    def _rename(self, src: Path, dst: Path, *, src_dir_fd: int | None = None, dst_dir_fd: int | None = None) -> None:
+        """Rename (move) the file from source to destination."""
+
+    def rename(self, src: Path, dst: Path, *, src_dir_fd: int | None = None, dst_dir_fd: int | None = None) -> None:
+        """Rename (move) the file from source to destination.
+
+        Behavior mirrors `os.rename()` as closely as possible if supported by the filesystem.
+
+        Args:
+            src: Current location of the file in the filesystem.
+            dst: Target location of the file in the filesystem.
+            src_dir_fd: File descriptor open to a directory, which will change src path to be relative to that directory.
+            dst_dir_fd: File descriptor open to a directory, which will change dst path to be relative to that directory.
+
+        Raises:
+            FileNotFoundError if path is not found.
+            OSError if path is a directory.
+            NotImplementedError if a dir_fd arg is used and not available for the platform or Filesystem.
+            FileExistsError if the destination already exists.
+        """
+        if src_dir_fd is not None or dst_dir_fd is not None:
+            # Non-local filesystems do not support dir_fd(s). Default to not allowed.
+            raise NotImplementedError(f"src_dir_fd and dst_dir_fd are not supported by {self.__class__.__name__}")
+        if not self.exists(src):
+            raise FileNotFoundError(errno.ENOENT, f"No such file or directory: {src}")
+        if not self.isfile(src):
+            raise OSError(1, f"Operation not permitted: {src}")
+        if self.exists(dst):
+            raise FileExistsError(errno.EEXIST, f"File exists: {dst}")
+        self._rename(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
 
 
 class LocalFile(File):
@@ -447,7 +476,7 @@ class LocalFilesystem(Filesystem):
         if self.safe_paths:
             # Validate final path to file, and treat as not found if attempting to escape the root.
             if not path.startswith(self.directory):
-                raise FileNotFoundError(2, f"No such file or directory: {file}")
+                raise FileNotFoundError(errno.ENOENT, f"No such file or directory: {file}")
 
         with self.ftype(self, path, mode=mode, encoding=encoding, compression=compression or self.compression) as _file:
             yield _file
@@ -462,12 +491,21 @@ class LocalFilesystem(Filesystem):
 
     @override
     def _remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
-        os.remove(path, dir_fd=dir_fd)
+        pass
 
     @override
     def remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
-        # Bypass base remove() checks to allow support for dir_fd.
-        self._remove(path, dir_fd=dir_fd)
+        # Bypass base remove() checks to allow support for dir_fd, and 1-to-1 match with native behavior.
+        os.remove(path, dir_fd=dir_fd)
+
+    @override
+    def _rename(self, src: Path, dst: Path, *, src_dir_fd: int | None = None, dst_dir_fd: int | None = None) -> None:
+        pass
+
+    @override
+    def rename(self, src: Path, dst: Path, *, src_dir_fd: int | None = None, dst_dir_fd: int | None = None) -> None:
+        # Bypass base rename() checks to allow support for dir_fd arguments, and 1-to-1 match with native behavior.
+        os.rename(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
 
 
 class MemFile(File):
@@ -500,7 +538,7 @@ class MemFile(File):
     @override
     def _read_checks(self) -> None:
         if "r" in self.mode and self.file not in self.filesystem.tree:
-            raise FileNotFoundError(2, f"No such file: '{self.file}'")
+            raise FileNotFoundError(errno.ENOENT, f"No such file: '{self.file}'")
         super()._read_checks()
 
     @override
@@ -534,6 +572,10 @@ class MemFilesystem(Filesystem):
     @override
     def _remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
         self.tree.pop(str(path))
+
+    @override
+    def _rename(self, src: Path, dst: Path, *, src_dir_fd: int | None = None, dst_dir_fd: int | None = None) -> None:
+        self.tree[str(dst)] = self.tree.pop(str(src))
 
 
 class S3BotoFile(File):
@@ -578,7 +620,7 @@ class S3BotoFile(File):
         except self.filesystem.ClientError as client_error:
             # For consistency across File types, change missing objects errors to standard FileNotFoundErrors.
             if client_error.response["Error"]["Code"] == "NoSuchKey":
-                raise FileNotFoundError(2, f"No such file: {self}") from client_error
+                raise FileNotFoundError(errno.ENOENT, f"No such file: {self}") from client_error
             raise client_error
         return content
 
@@ -659,6 +701,12 @@ class S3BotoFilesystem(Filesystem):
     def _remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
         self.client.delete_object(Bucket=self.bucket_name, Key=str(path))
 
+    @override
+    def _rename(self, src: Path, dst: Path, *, src_dir_fd: int | None = None, dst_dir_fd: int | None = None) -> None:
+        cp_src = {"Bucket": self.bucket_name, "Key": src}
+        self.client.copy_object(Bucket=self.bucket_name, Key=str(dst), CopySource=cp_src)
+        self._remove(src)
+
 
 class SQLiteFile(File):
     """File-like object in a SQLite database."""
@@ -691,7 +739,7 @@ class SQLiteFile(File):
     def _read(self) -> bytes | str:
         res = self.filesystem.execute(self.filesystem.read_query, (self.file,)).fetchone()
         if res is None:
-            raise FileNotFoundError(2, f"No such file: '{self.file}'")
+            raise FileNotFoundError(errno.ENOENT, f"No such file: '{self.file}'")
         content = res[0]
         return content
 
@@ -755,6 +803,7 @@ class SQLiteFilesystem(Filesystem):
         )
         self.exists_query = f"SELECT {file_col} FROM {table_name} WHERE {file_col}=(?) LIMIT 1;"  # nosec
         self.remove_query = f"DELETE FROM {table_name} WHERE {file_col}=(?);"  # nosec
+        self.rename_query = f"UPDATE {table_name} SET {file_col}=(?) WHERE {file_col}=(?);"  # nosec
 
     def commit(self) -> None:
         """Commit any pending transactions to the database backend."""
@@ -786,10 +835,13 @@ class SQLiteFilesystem(Filesystem):
 
     @override
     def _remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
-        res = self.execute(self.remove_query, (str(path),))
+        self.execute(self.remove_query, (str(path),))
         self.commit()
-        if res is None:
-            raise FileNotFoundError(2, f"No such file: '{path}'")
+
+    @override
+    def _rename(self, src: Path, dst: Path, *, src_dir_fd: int | None = None, dst_dir_fd: int | None = None) -> None:
+        self.execute(self.rename_query, (str(dst), str(src)))
+        self.commit()
 
 
 def init_compressors() -> list[str]:
