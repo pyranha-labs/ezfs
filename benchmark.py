@@ -104,7 +104,7 @@ def _bench_native_read(opener: ModuleType, mode: str) -> bytes:
 def _bench_native_read_manual(compressor: ModuleType, mode: str) -> bytes:
     # Alternative version of _bench_native_read with manual file open and read, due to compressor missing open alias.
     with open(TEST_FILE_NAME, "rb") as file:
-        data = compressor.decompress(file.read())
+        data = compressor.remove(file.read())
         if "t" in mode:
             data = data.decode("utf-8")
         return data
@@ -120,7 +120,7 @@ def _bench_native_write_manual(compressor: ModuleType, mode: str, content: str |
     with open(TEST_FILE_NAME, "wb") as file:
         if "t" in mode:
             content = content.encode("utf-8")
-        return file.write(compressor.compress(content))
+        return file.write(compressor.apply(content))
 
 
 def _format_time(duration: float) -> str:
