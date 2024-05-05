@@ -37,7 +37,9 @@ from os import PathLike
 from types import ModuleType
 from types import TracebackType
 from typing import Callable
+from typing import Generic
 from typing import Iterable
+from typing import TypeVar
 
 try:
     from typing import override  # pylint: disable=ungrouped-imports
@@ -161,160 +163,6 @@ class Compressor(Transform):
     def _decompress(self, data: bytes) -> bytes:
         """Decompress the data using the provided module."""
         return self.compressor.decompress(data)
-
-
-class File(metaclass=abc.ABCMeta):
-    """Representation of a file-like object used for storage and retrival of data."""
-
-    __slots__ = (
-        "filesystem",
-        "file",
-        "mode",
-        "encoding",
-        "compression",
-        "transform",
-    )
-    valid_modes = ("r", "w", "b", "t", "+")
-
-    def __init__(  # pylint: disable=too-many-arguments
-        self,
-        filesystem: Filesystem,
-        file: str,
-        mode: str = "rt",
-        encoding: str = "utf-8",
-        compression: str | Transform | None = NO_COMPRESSION,
-        transform: Transform | None = None,
-    ) -> None:
-        """Initialize the base attributes of the file for read and write operations.
-
-        Args:
-            filesystem: Original filesystem used to create the File.
-            file: Location of the file in the filesystem.
-            mode: Options used to open the file. See `File.valid_modes` and `builtins.open()` for details.
-            encoding: Name of the encoding used to decode or encode the file when in text mode.
-            compression: Compressor type to use when reading or writing the file contents.
-                Use basic string name to load from default compressor cache.
-            transform: Data transformation used when reading or writing the file contents.
-                Transformations are applied before compression when writing, and after decompression when reading.
-        """
-        self.filesystem = filesystem
-        self.file = file
-        self.mode = mode
-        self.encoding = encoding
-        self.compression = __COMPRESSORS__[compression] if isinstance(compression, str) else compression
-        self.transform = transform
-
-    def __repr__(self) -> str:
-        """Internal string representation of the file."""
-        return f"{self.__class__.__name__.lower()}:{self.file}"
-
-    def __str__(self) -> str:
-        """External string representation of the file."""
-        return self.file
-
-    def __enter__(self) -> File:
-        """Open a file for read and write operations.
-
-        Return:
-            This File in an open state as a context manager to handle read and write operations.
-        """
-        self._open()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException],
-        exc_value: BaseException,
-        traceback: TracebackType,  # Preserve the original python name. pylint: disable=redefined-outer-name
-    ) -> None:
-        """Cleanup anc close the File when read and write operations are complete."""
-        self._close()
-
-    def _close(self) -> None:
-        """Close any open resources used by the file."""
-        # No actions required by default. Subclasses must inherit and override if they need to close resources.
-
-    def _open(self) -> None:
-        """Open file for read and write operations."""
-        self._open_checks()
-
-    def _open_checks(self) -> None:
-        """Perform pre-checks before opening a file and raise exceptions matching local files."""
-        mode = self.mode
-        for char in mode:
-            if char not in self.valid_modes:
-                raise ValueError(f"Invalid mode: '{mode}'")
-        if "t" not in mode and "b" not in mode:
-            mode = f"{mode}t"
-            self.mode = mode
-        if "r" in mode and "w" in mode:
-            raise ValueError("must have exactly one of read/write mode")
-        if "t" in mode and "b" in mode:
-            raise ValueError("can't have text and binary mode at once")
-
-    @abc.abstractmethod
-    def _read(self) -> bytes | str:
-        """Read the contents of the file."""
-
-    def read(self) -> bytes | str:
-        """Read the contents of the file.
-
-        Raises:
-            UnsupportedOperation if the file is not writeable.
-        """
-        self._read_checks()
-        data = self._read()
-        if self.compression:
-            data = self.compression.remove(data)
-        if self.transform:
-            data = self.transform.remove(data)
-        if isinstance(data, bytes) and "t" in self.mode:
-            data = data.decode(self.encoding)
-        return data
-
-    def _read_checks(self) -> None:
-        """Perform pre-checks before reading a file and raise exceptions matching local files."""
-        if "r" not in self.mode:
-            raise UnsupportedOperation("not readable")
-
-    @abc.abstractmethod
-    def _write(self, data: bytes | str) -> int:
-        """Write the contents to the file."""
-
-    def write(self, content: bytes | str) -> int:
-        """Write the contents to the file.
-
-        Args:
-            content: The contents to write out to the file.
-
-        Returns:
-            Number of bytes written.
-
-        Raises:
-            UnsupportedOperation if the file is not writeable.
-            TypeError if the contents are invalid.
-        """
-        self._write_checks(content)
-        if (self.compression or self.transform) and isinstance(content, str):
-            content = content.encode(self.encoding)
-        if self.transform:
-            content = self.transform.apply(content)
-        if self.compression:
-            content = self.compression.apply(content)
-        return self._write(content)
-
-    def _write_checks(self, content: bytes | str) -> None:
-        """Perform pre-checks before writing a file and raise exceptions matching local filesystem behavior."""
-        if "w" not in self.mode:
-            raise UnsupportedOperation("not writeable")
-        if not isinstance(content, (bytes, str)):
-            raise TypeError("write() argument must be bytes or str")
-        if isinstance(content, bytes) and "b" not in self.mode:
-            raise TypeError("write() argument must be str, not bytes")
-        if isinstance(content, str) and "t" not in self.mode:
-            raise TypeError("write() argument must be bytes, not str")
-        if not isinstance(content, (bytes, str)):
-            raise TypeError("write() argument must be bytes, not str")
 
 
 class Filesystem(metaclass=abc.ABCMeta):
@@ -457,75 +305,161 @@ class Filesystem(metaclass=abc.ABCMeta):
         self._rename(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
 
 
-class LocalFile(File):
-    """File-like object on a local filesystem."""
+FilesystemType = TypeVar("FilesystemType", bound=Filesystem)  # pylint: disable=invalid-name
 
-    __slots__ = ("_file",)
+
+class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
+    """Representation of a file-like object used for storage and retrival of data."""
+
+    __slots__ = (
+        "filesystem",
+        "file",
+        "mode",
+        "encoding",
+        "compression",
+        "transform",
+    )
+    valid_modes = ("r", "w", "b", "t", "+")
 
     def __init__(  # pylint: disable=too-many-arguments
         self,
-        filesystem: LocalFilesystem,
+        filesystem: FilesystemType,
         file: str,
         mode: str = "rt",
         encoding: str = "utf-8",
         compression: str | Transform | None = NO_COMPRESSION,
         transform: Transform | None = None,
     ) -> None:
-        """Initialize the base attributes of the local file for read and write operations.
+        """Initialize the base attributes of the file for read and write operations.
 
         Args:
             filesystem: Original filesystem used to create the File.
-            file: Location of the file on the local filesystem.
-            mode: Options used to open the file.
+            file: Location of the file in the filesystem.
+            mode: Options used to open the file. See `File.valid_modes` and `builtins.open()` for details.
             encoding: Name of the encoding used to decode or encode the file when in text mode.
-            compression: Type of compression used when reading or writing the file contents.
+            compression: Compressor type to use when reading or writing the file contents.
+                Use basic string name to load from default compressor cache.
             transform: Data transformation used when reading or writing the file contents.
+                Transformations are applied before compression when writing, and after decompression when reading.
         """
-        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression, transform=transform)
-        self.filesystem: LocalFilesystem = filesystem  # Set again with typehint to avoid lint warnings.
-        self._file = None
+        self.filesystem = filesystem
+        self.file = file
+        self.mode = mode
+        self.encoding = encoding
+        self.compression = __COMPRESSORS__[compression] if isinstance(compression, str) else compression
+        self.transform = transform
 
-    @override
+    def __repr__(self) -> str:
+        """Internal string representation of the file."""
+        return f"{self.__class__.__name__.lower()}:{self.file}"
+
     def __str__(self) -> str:
-        # Use relative path within filesystem to avoid exposing full path in case it contains sensitive information.
-        return self.file.replace(self.filesystem.directory, "")
+        """External string representation of the file."""
+        return self.file
 
-    @override
+    def __enter__(self) -> File:
+        """Open a file for read and write operations.
+
+        Return:
+            This File in an open state as a context manager to handle read and write operations.
+        """
+        self._open()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException],
+        exc_value: BaseException,
+        traceback: TracebackType,  # Preserve the original python name. pylint: disable=redefined-outer-name
+    ) -> None:
+        """Cleanup anc close the File when read and write operations are complete."""
+        self._close()
+
     def _close(self) -> None:
-        self._file.close()
-        self._file = None
+        """Close any open resources used by the file."""
+        # No actions required by default. Subclasses must inherit and override if they need to close resources.
 
-    @override
     def _open(self) -> None:
-        # Do not call super full open checks, they will be performed by the native file open operation with local files.
+        """Open file for read and write operations."""
+        self._open_checks()
+
+    def _open_checks(self) -> None:
+        """Perform pre-checks before opening a file and raise exceptions matching local files."""
         mode = self.mode
+        for char in mode:
+            if char not in self.valid_modes:
+                raise ValueError(f"Invalid mode: '{mode}'")
         if "t" not in mode and "b" not in mode:
             mode = f"{mode}t"
+            self.mode = mode
+        if "r" in mode and "w" in mode:
+            raise ValueError("must have exactly one of read/write mode")
+        if "t" in mode and "b" in mode:
+            raise ValueError("can't have text and binary mode at once")
 
-        encoding = self.encoding
-        if self.compression or self.transform:
-            # Force the mode to binary to allow utilizing native open operation to read/write compressed data.
-            mode = mode.replace("t", "b")
-            encoding = None
-        self._file = open(self.file, mode, encoding=encoding)  # pylint: disable=consider-using-with
-
-    @override
+    @abc.abstractmethod
     def _read(self) -> bytes | str:
-        return self._file.read()
+        """Read the contents of the file."""
 
-    @override
+    def read(self) -> bytes | str:
+        """Read the contents of the file.
+
+        Raises:
+            UnsupportedOperation if the file is not writeable.
+        """
+        self._read_checks()
+        data = self._read()
+        if self.compression:
+            data = self.compression.remove(data)
+        if self.transform:
+            data = self.transform.remove(data)
+        if isinstance(data, bytes) and "t" in self.mode:
+            data = data.decode(self.encoding)
+        return data
+
     def _read_checks(self) -> None:
-        # No checks are needed for local files, they will raise directly from native code.
-        pass
+        """Perform pre-checks before reading a file and raise exceptions matching local files."""
+        if "r" not in self.mode:
+            raise UnsupportedOperation("not readable")
 
-    @override
+    @abc.abstractmethod
     def _write(self, data: bytes | str) -> int:
-        return self._file.write(data)
+        """Write the contents to the file."""
 
-    @override
+    def write(self, content: bytes | str) -> int:
+        """Write the contents to the file.
+
+        Args:
+            content: The contents to write out to the file.
+
+        Returns:
+            Number of bytes written.
+
+        Raises:
+            UnsupportedOperation if the file is not writeable.
+            TypeError if the contents are invalid.
+        """
+        self._write_checks(content)
+        if (self.compression or self.transform) and isinstance(content, str):
+            content = content.encode(self.encoding)
+        if self.transform:
+            content = self.transform.apply(content)
+        if self.compression:
+            content = self.compression.apply(content)
+        return self._write(content)
+
     def _write_checks(self, content: bytes | str) -> None:
-        # No checks are needed for local files, they will raise directly from native code.
-        pass
+        """Perform pre-checks before writing a file and raise exceptions matching local filesystem behavior."""
+        if "w" not in self.mode:
+            raise UnsupportedOperation("not writeable")
+        if not isinstance(content, (bytes, str)):
+            raise TypeError("write() argument must be bytes or str")
+        if isinstance(content, bytes) and "b" not in self.mode:
+            raise TypeError("write() argument must be str, not bytes")
+        if isinstance(content, str) and "t" not in self.mode:
+            raise TypeError("write() argument must be bytes, not str")
+        if not isinstance(content, (bytes, str)):
+            raise TypeError("write() argument must be bytes, not str")
 
 
 class LocalFilesystem(Filesystem):
@@ -561,7 +495,7 @@ class LocalFilesystem(Filesystem):
         encoding: str = "utf-8",
         compression: str | Transform | None = None,
         transform: Transform | None = None,
-    ) -> File:
+    ) -> LocalFile:
         path = os.path.abspath(os.path.join(self.directory, file.lstrip(os.path.sep)))
         if self.safe_paths:
             # Validate final path to file, and treat as not found if attempting to escape the root.
@@ -605,45 +539,51 @@ class LocalFilesystem(Filesystem):
         os.rename(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
 
 
-class MemFile(File):
-    """File-like object stored in memory."""
+class LocalFile(File[LocalFilesystem]):
+    """File-like object on a local filesystem."""
 
-    def __init__(  # pylint: disable=too-many-arguments
-        self,
-        filesystem: MemFilesystem,
-        file: str,
-        mode: str = "rt",
-        encoding: str = "utf-8",
-        compression: str | Transform | None = NO_COMPRESSION,
-        transform: Transform | None = None,
-    ) -> None:
-        """Initialize the base attributes of the in-memory file for read and write operations.
+    __slots__ = ("_file",)
 
-        Args:
-            filesystem: Original filesystem used to create the File.
-            file: Location of the file in the in-memory filesystem.
-            mode: Options used to open the file.
-            encoding: Name of the encoding used to decode or encode the file when in text mode.
-            compression: Type of compression used when reading or writing the file contents.
-            transform: Data transformation used when reading or writing the file contents.
-        """
-        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression, transform=transform)
-        self.filesystem: MemFilesystem = filesystem  # Set again with typehint to avoid lint warnings.
+    @override
+    def __str__(self) -> str:
+        # Use relative path within filesystem to avoid exposing full path in case it contains sensitive information.
+        return self.file.replace(self.filesystem.directory, "")
+
+    @override
+    def _close(self) -> None:
+        self._file.close()
+
+    @override
+    def _open(self) -> None:
+        # Do not call super full open checks, they will be performed by the native file open operation with local files.
+        mode = self.mode
+        if "t" not in mode and "b" not in mode:
+            mode = f"{mode}t"
+
+        encoding = self.encoding
+        if self.compression or self.transform:
+            # Force the mode to binary to allow utilizing native open operation to read/write compressed data.
+            mode = mode.replace("t", "b")
+            encoding = None
+        self._file = open(self.file, mode, encoding=encoding)  # pylint: disable=attribute-defined-outside-init,consider-using-with
 
     @override
     def _read(self) -> bytes | str:
-        return self.filesystem.tree.get(self.file)
+        return self._file.read()
 
     @override
     def _read_checks(self) -> None:
-        if "r" in self.mode and self.file not in self.filesystem.tree:
-            raise FileNotFoundError(errno.ENOENT, f"No such file: '{self.file}'")
-        super()._read_checks()
+        # No checks are needed for local files, they will raise directly from native code.
+        pass
 
     @override
     def _write(self, data: bytes | str) -> int:
-        self.filesystem.tree[self.file] = data
-        return len(data)
+        return self._file.write(data)
+
+    @override
+    def _write_checks(self, content: bytes | str) -> None:
+        # No checks are needed for local files, they will raise directly from native code.
+        pass
 
 
 class MemFilesystem(Filesystem):
@@ -678,72 +618,25 @@ class MemFilesystem(Filesystem):
         self.tree[str(dst)] = self.tree.pop(str(src))
 
 
-class S3BotoFile(File):
-    """File-like object in a remote S3 bucket."""
+class MemFile(File[MemFilesystem]):
+    """File-like object stored in memory."""
 
-    __slots__ = (
-        "_read_response",
-        "_write_response",
-    )
-
-    def __init__(  # pylint: disable=too-many-arguments
-        self,
-        filesystem: S3BotoFilesystem,
-        file: str,
-        mode: str = "rt",
-        encoding: str = "utf-8",
-        compression: str | Transform | None = NO_COMPRESSION,
-        transform: Transform | None = None,
-    ) -> None:
-        """Initialize the base attributes of the file-like S3 object for read and write operations.
-
-        Args:
-            filesystem: Original filesystem used to create the File.
-            file: Location of the object in the S3 bucket.
-            mode: Options used to open the file.
-            encoding: Name of the encoding used to decode or encode the file when in text mode.
-            compression: Type of compression used when reading or writing the file contents.
-            transform: Data transformation used when reading or writing the file contents.
-        """
-        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression, transform=transform)
-        self.filesystem: S3BotoFilesystem = filesystem  # Set again with typehint to avoid lint warnings.
-        self._read_response = None
-        self._write_response = None
-
-    @override
-    def __repr__(self) -> str:
-        return f"{self.filesystem.bucket_name}:{self.file}"
+    __slots__ = ()
 
     @override
     def _read(self) -> bytes | str:
-        try:
-            self._read_response = self.filesystem.client.get_object(Bucket=self.filesystem.bucket_name, Key=self.file)
-            content = self._read_response["Body"].read()
-        except self.filesystem.ClientError as client_error:
-            # For consistency across File types, change missing objects errors to standard FileNotFoundErrors.
-            if client_error.response["Error"]["Code"] == "NoSuchKey":
-                raise FileNotFoundError(errno.ENOENT, f"No such file: {self}") from client_error
-            raise client_error
-        return content
+        return self.filesystem.tree.get(self.file)
 
-    @property
-    def read_response(self) -> dict | None:
-        """The raw S3 response after a read operation is performed."""
-        return self._read_response
+    @override
+    def _read_checks(self) -> None:
+        if "r" in self.mode and self.file not in self.filesystem.tree:
+            raise FileNotFoundError(errno.ENOENT, f"No such file: '{self.file}'")
+        super()._read_checks()
 
     @override
     def _write(self, data: bytes | str) -> int:
-        self._write_response = self.filesystem.client.put_object(
-            Body=data,
-            Bucket=self.filesystem.bucket_name,
-            Key=self.file,
-        )
+        self.filesystem.tree[self.file] = data
         return len(data)
-
-    @property
-    def write_response(self) -> dict | None:
-        """The raw S3 response after a write operation is performed."""
-        return self._write_response
 
 
 class S3BotoFilesystem(Filesystem):
@@ -811,47 +704,30 @@ class S3BotoFilesystem(Filesystem):
         self._remove(src)
 
 
-class SQLiteFile(File):
-    """File-like object in a SQLite database."""
+class S3BotoFile(File[S3BotoFilesystem]):
+    """File-like object in a remote S3 bucket."""
 
-    def __init__(  # pylint: disable=too-many-arguments
-        self,
-        filesystem: SQLiteFilesystem,
-        file: str,
-        mode: str = "rt",
-        encoding: str = "utf-8",
-        compression: str | Transform | None = NO_COMPRESSION,
-        transform: Transform | None = None,
-    ) -> None:
-        """Initialize the base attributes of the file-like database object for read and write operations.
-
-        Args:
-            filesystem: Original filesystem used to create the File.
-            file: Location of the object in the database table.
-            mode: Options used to open the file.
-            encoding: Name of the encoding used to decode or encode the file when in text mode.
-            compression: Type of compression used when reading or writing the file contents.
-            transform: Data transformation used when reading or writing the file contents.
-        """
-        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression, transform=transform)
-        self.filesystem: SQLiteFilesystem = filesystem  # Set again with typehint to avoid lint warnings.
+    __slots__ = ()
 
     @override
     def __repr__(self) -> str:
-        return f"sqlite3://{self.filesystem.database}?table_name={self.filesystem.table_name}&file={self.file}"
+        return f"{self.filesystem.bucket_name}:{self.file}"
 
     @override
     def _read(self) -> bytes | str:
-        res = self.filesystem.execute(self.filesystem.read_query, (self.file,)).fetchone()
-        if res is None:
-            raise FileNotFoundError(errno.ENOENT, f"No such file: '{self.file}'")
-        content = res[0]
+        try:
+            read_response = self.filesystem.client.get_object(Bucket=self.filesystem.bucket_name, Key=self.file)
+            content = read_response["Body"].read()
+        except self.filesystem.ClientError as client_error:
+            # For consistency across File types, change missing objects errors to standard FileNotFoundErrors.
+            if client_error.response["Error"]["Code"] == "NoSuchKey":
+                raise FileNotFoundError(errno.ENOENT, f"No such file: {self}") from client_error
+            raise client_error
         return content
 
     @override
     def _write(self, data: bytes | str) -> int:
-        self.filesystem.execute(self.filesystem.write_query, (self.file, data, data))
-        self.filesystem.commit()
+        self.filesystem.client.put_object(Body=data, Bucket=self.filesystem.bucket_name, Key=self.file)
         return len(data)
 
 
@@ -911,6 +787,9 @@ class SQLiteFilesystem(Filesystem):
         self.remove_query = f"DELETE FROM {table_name} WHERE {file_col}=(?);"  # nosec
         self.rename_query = f"UPDATE {table_name} SET {file_col}=(?) WHERE {file_col}=(?);"  # nosec
 
+        if self.database == ":memory:":
+            self.create_table()
+
     def commit(self) -> None:
         """Commit any pending transactions to the database backend."""
         self._connection.commit()
@@ -948,6 +827,30 @@ class SQLiteFilesystem(Filesystem):
     def _rename(self, src: Path, dst: Path, *, src_dir_fd: int | None = None, dst_dir_fd: int | None = None) -> None:
         self.execute(self.rename_query, (str(dst), str(src)))
         self.commit()
+
+
+class SQLiteFile(File[SQLiteFilesystem]):
+    """File-like object in a SQLite database."""
+
+    __slots__ = ()
+
+    @override
+    def __repr__(self) -> str:
+        return f"sqlite3://{self.filesystem.database}?table_name={self.filesystem.table_name}&file={self.file}"
+
+    @override
+    def _read(self) -> bytes | str:
+        res = self.filesystem.execute(self.filesystem.read_query, (self.file,)).fetchone()
+        if res is None:
+            raise FileNotFoundError(errno.ENOENT, f"No such file: '{self.file}'")
+        content = res[0]
+        return content
+
+    @override
+    def _write(self, data: bytes | str) -> int:
+        self.filesystem.execute(self.filesystem.write_query, (self.file, data, data))
+        self.filesystem.commit()
+        return len(data)
 
 
 def init_compressors() -> list[str]:
