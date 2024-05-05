@@ -28,7 +28,8 @@ if you know how to read/write a local file in Python, you also know how to read/
 Reading and writing is supported for both text and binary files across local, remote, and memory "filesystems".
 Additional compression types and storage types can be supported by extending the primary `File`, `Filesystem`,
 and `Compressor` adapters. EZFS can also be faster than "native" open/read/write operations in some scenarios,
-due to having a specialized focus. Refer to the compatibility guides, and "Why EZFS", for more information.
+due to having a specialized focus. Refer to the [Compatibility](#compatibility) guide, and [Why EZFS?](#why-ezfs),
+for more information.
 
 
 ## Table Of Contents
@@ -37,10 +38,10 @@ due to having a specialized focus. Refer to the compatibility guides, and "Why E
   * [Getting Started](#getting-started)
     * [Installation](#installation)
   * [How Tos](#how-tos)
-    * [Write a file with compression](#write-a-file-with-compression)
-    * [Read a file with compression](#read-a-file-with-compression)
+    * [Read or write a file](#read-or-write-a-file)
     * [Swap between filesystem types](#swap-between-filesystem-types-local-file-to-local-db)
     * [Access a file in an S3 bucket](#access-a-file-object-in-an-s3-bucket-and-use-compression)
+    * [Transform file data](#transform-file-data-such-as-base64)
   * [Why EZFS?](#why-ezfs)
     * [What does EZFS provide? What does EZFS not provide?](#what-does-ezfs-provide-what-does-ezfs-not-provide)
     * [Dependency Simplicity Example](#dependency-simplicity-example)
@@ -51,13 +52,18 @@ due to having a specialized focus. Refer to the compatibility guides, and "Why E
 ## Compatibility
 
 - Supports Python 3.10+
-- Supports multiple compression types
-  - `bz2`, `gzip`, `lzma` (when built into Python)
-  - `blosc`, `brotli`, `lz4`, `snappy`, and `zstd` (when installed separately)
 - Supports multiple storage types
-  - `sqlite3` (when built into Python)
+  - Local filesystem
+  - Temporary in-memory storage
+  - `sqlite3`, local or in-memory (when built with Python)
   - `S3` (when installed separately)
-- Theoretically any compression type, or backend storage type, by extending `Compressor`, `File`, and `Filesystem` 
+  - Any storage by extending `File` and `Filesystem`
+- Supports multiple compression types
+  - `bz2`, `gzip`, `lzma` (when built with Python)
+  - `blosc`, `brotli`, `lz4`, `snappy`, and `zstd` (when installed separately)
+  - Any compression by extending `Compressor` or `Transform`
+- Custom transformations, such as encryption/decryption, Base64 encoding/decoding, obfuscation, etc.
+  - Any data transformation by extending `Transform`
 
 
 ## Getting Started
@@ -102,31 +108,30 @@ against the filesystem instead of Python built-ins, or 3rd party compression lib
 of how to use the more advanced features, such as compression and remote storage. Refer to the supported operations
 table in [Why EZFS?](#why-ezfs) for information on additional features.
 
-### Write a file with compression
+### Read or write a file
 ```python
 import ezfs
 
-filesystem = ezfs.LocalFilesystem('/tmp')
-with filesystem.open('test-file.txt.gz', 'w+', compression='gzip') as out_file:
+# No default compression/decompression:
+fs = ezfs.LocalFilesystem('/tmp')
+
+# With default compression/decompression for all files:
+fs = ezfs.LocalFilesystem('/tmp', compression='gzip')
+
+# Use default compression from filesystem during write:
+with fs.open('test.txt.gz', 'w+') as out_file:
     out_file.write('test message')
 
-# Or automatically compress all files on the "filesystem" on write:
-filesystem = ezfs.LocalFilesystem('/tmp', compression='gzip')
-with filesystem.open('test-file.txt.gz', 'w+') as out_file:
+# Manually specify compression during write:
+with fs.open('test.txt.gz', 'w+', compression='gzip') as out_file:
     out_file.write('test message')
-```
 
-### Read a file with compression
-```python
-import ezfs
-
-filesystem = ezfs.LocalFilesystem('/tmp')
-with filesystem.open('test-file.txt.gz', compression='gzip') as in_file:
+# Use default decompression from filesystem during read:
+with fs.open('test.txt.gz') as in_file:
     print(in_file.read())
 
-# Or automatically decompress all files on the "filesystem" on read:
-filesystem = ezfs.LocalFilesystem('/tmp', compression='gzip')
-with filesystem.open('test-file.txt.gz') as in_file:
+# Manually specify decompression during read:
+with fs.open('test.txt.gz', compression='gzip') as in_file:
     print(in_file.read())
 ```
 
@@ -135,12 +140,12 @@ with filesystem.open('test-file.txt.gz') as in_file:
 import ezfs
 
 # Only a single change is needed, such as from a local folder:
-filesystem = ezfs.LocalFilesystem('/tmp')
+fs = ezfs.LocalFilesystem('/tmp')
 # To a local database file:
-filesystem = ezfs.SQLiteFilesystem('/tmp/tmp.db')
+fs = ezfs.SQLiteFilesystem('/tmp/tmp.db')
 
 # No change is needed to open/read/write operations:
-with filesystem.open('test-file.txt.gz', 'w+', compression='gzip') as out_file:
+with fs.open('test.txt.gz', 'w+', compression='gzip') as out_file:
     out_file.write('test message')
 ```
 
@@ -149,16 +154,40 @@ with filesystem.open('test-file.txt.gz', 'w+', compression='gzip') as out_file:
 import ezfs
 
 # To use advanced compression types, they must be installed separately.
-filesystem = ezfs.S3BotoFilesystem(
+fs = ezfs.S3BotoFilesystem(
     'my-bucket-1234',
     access_key_id='ABC123',
     secret_access_key='abcdefg1234567',
     compression='zstd',
 )
-with filesystem.open('test-file.txt.zst', 'w+') as out_file:
+with fs.open('test.txt.zst', 'w+') as out_file:
     out_file.write('test message')
-with filesystem.open('test-file.txt.zst') as in_file:
+with fs.open('test.txt.zst') as in_file:
     print(in_file.read())
+```
+
+### Transform file data, such as Base64
+```python
+import base64
+import ezfs
+
+b64_transform = ezfs.Transform(
+    apply=lambda data: base64.b64encode(data),  # Used on write.
+    remove=lambda data: base64.b64decode(data),  # Used on read.
+)
+
+# Transforms can be applied at the Filesystem level, or File level, similar to compression, with "transform=...":
+fs = ezfs.LocalFilesystem('/tmp', transform=b64_transform)
+with fs.open('test.txt', 'w+') as out_file:
+    out_file.write('test message')
+with fs.open('test.txt', transform=b64_transform) as in_file:
+    print(in_file.read())
+
+# Transforms can be combined to create complex transformations:
+transform = ezfs.Transform.chain(
+    b64_transform,
+    ...
+)
 ```
 
 
@@ -201,9 +230,11 @@ they are supported with advanced installs (extras), and whether they are optimiz
 | isfile()              | ✅   | -      | ✅ ³       | ✅          |
 | remove()              | ✅   | -      | ✅ ³       | ✅          |
 | rename()              | ✅   | -      | ✅ ³       | ✅          |
+| Local file storage    | ✅   | ✅      | ✅         | ✅          |
 | Memory file storage   | ✅   | ✅      | ✅         | ✅          |
 | S3 file storage       | ❌   | ✅      | ✅         | ✅          |
 | SQLite file storage   | ✅ ¹ | -      | ✅         | ✅          |
+| Custom data transform | ✅   | -      | ✅         | ✅          |
 | bz2 compression       | ✅ ¹ | -      | ✅         | ✅          |
 | gzip compression      | ✅ ¹ | -      | ✅         | ✅          |
 | lzma compression      | ✅ ¹ | -      | ✅         | ✅          |

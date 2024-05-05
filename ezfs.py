@@ -63,39 +63,104 @@ if typing.TYPE_CHECKING:
 
 
 __version__ = "1.0.2"
-# Compressors may either be a module, or subclass of Compressor,
-# with `compress()` and `decompress()` functions.
-__COMPRESSORS__: dict[str, Compressor | ModuleType | None] = {}
+__COMPRESSORS__: dict[str, Transform | None] = {}
 NO_COMPRESSION = "none"
 Path = str | bytes | PathLike[str] | PathLike[bytes]
 
 
-class Compressor(metaclass=abc.ABCMeta):
-    """Custom compressor to control compress/decompress logic."""
+class Transform(metaclass=abc.ABCMeta):
+    """Transformation to apply to raw bytes before writing to, or after reading from, raw storage.
 
-    @abc.abstractmethod
-    def compress(self, data: bytes) -> bytes:
-        """Shrink the data using a compression algorithm.
+    Common transformations include compression/decompression, encoding/decoding, and encrypting/decrypting.
+    Transforms may perform any operations against raw bytes, as long as they output raw bytes, and are reversible.
 
-        Args:
-            data: The original bytes to compress.
+    Transforms should be stateless, and allow reuse across multiple files after instantiation.
+    """
 
-        Returns:
-            The compressed bytes.
-        """
-        # Example: gzip.compress(data, compresslevel=1)
-
-    @abc.abstractmethod
-    def decompress(self, data: bytes) -> bytes:
-        """Expand the data using a decompression algorithm.
+    def __init__(self, apply: Callable[[bytes], bytes], remove: Callable[[bytes], bytes]) -> None:
+        """Initialize the transformation with byte modification operations.
 
         Args:
-            data: The original bytes to decompress.
+            apply: The function to call to modify the data before writing.
+            remove: The function to call to undo the operation when reading.
+        """
+        self._dependent = None
+        self._apply = apply
+        self._remove = remove
+
+    def apply(self, data: bytes) -> bytes:
+        """Run the transformation against raw data.
+
+        Args:
+            data: The original bytes to transform.
 
         Returns:
-            The decompressed bytes.
+            The transformed bytes.
         """
-        # Example: gzip.decompress(data)
+        data = self._apply(data)
+        if self._dependent:
+            data = self._dependent.apply(data)
+        return data
+
+    @staticmethod
+    def chain(*transforms: Transform) -> Transform:
+        """Combine multiple transformations together to modify data on read and write.
+
+        Args:
+            transforms: All transformations to apply to the data.
+                Transformations applied in ascending order on write, and descending order on read.
+
+        Returns:
+            The primary transformation to use to start applications and removals.
+        """
+        transforms = [transform._copy() for transform in transforms]  # pylint: disable=protected-access
+        for index, transform in enumerate(transforms):
+            if transform != transforms[-1]:
+                transform._dependent = transforms[index + 1]  # pylint: disable=protected-access
+        return transforms[0]
+
+    def _copy(self) -> Transform:
+        """Create a copy of this transformation to allow use in chained operations without modifying original."""
+        return type(self)(self._apply, self._remove)
+
+    def remove(self, data: bytes) -> bytes:
+        """Reverse the transformation on previously transformed data.
+
+        Args:
+            data: The bytes with the transformation applied.
+
+        Returns:
+            The original bytes without the transformation applied.
+        """
+        if self._dependent:
+            data = self._dependent.remove(data)
+        data = self._remove(data)
+        return data
+
+
+class Compressor(Transform):
+    """Transform data using a compression/decompression module."""
+
+    def __init__(self, compressor: ModuleType) -> None:
+        """Initialize the compressor with a specific compression module.
+
+        Args:
+            compressor: The module, or object, with `compress()` and `decompress()` functions.
+        """
+        super().__init__(self._compress, self._decompress)
+        self.compressor = compressor
+
+    @override
+    def _copy(self) -> Transform:
+        return type(self)(self.compressor)
+
+    def _compress(self, data: bytes) -> bytes:
+        """Compress the data using the provided module."""
+        return self.compressor.compress(data)
+
+    def _decompress(self, data: bytes) -> bytes:
+        """Decompress the data using the provided module."""
+        return self.compressor.decompress(data)
 
 
 class File(metaclass=abc.ABCMeta):
@@ -107,16 +172,18 @@ class File(metaclass=abc.ABCMeta):
         "mode",
         "encoding",
         "compression",
+        "transform",
     )
     valid_modes = ("r", "w", "b", "t", "+")
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         filesystem: Filesystem,
         file: str,
         mode: str = "rt",
         encoding: str = "utf-8",
-        compression: str | Compressor | ModuleType | None = NO_COMPRESSION,
+        compression: str | Transform | None = NO_COMPRESSION,
+        transform: Transform | None = None,
     ) -> None:
         """Initialize the base attributes of the file for read and write operations.
 
@@ -127,12 +194,15 @@ class File(metaclass=abc.ABCMeta):
             encoding: Name of the encoding used to decode or encode the file when in text mode.
             compression: Compressor type to use when reading or writing the file contents.
                 Use basic string name to load from default compressor cache.
+            transform: Data transformation used when reading or writing the file contents.
+                Transformations are applied before compression when writing, and after decompression when reading.
         """
         self.filesystem = filesystem
         self.file = file
         self.mode = mode
         self.encoding = encoding
         self.compression = __COMPRESSORS__[compression] if isinstance(compression, str) else compression
+        self.transform = transform
 
     def __repr__(self) -> str:
         """Internal string representation of the file."""
@@ -195,7 +265,9 @@ class File(metaclass=abc.ABCMeta):
         self._read_checks()
         data = self._read()
         if self.compression:
-            data = self.compression.decompress(data)
+            data = self.compression.remove(data)
+        if self.transform:
+            data = self.transform.remove(data)
         if isinstance(data, bytes) and "t" in self.mode:
             data = data.decode(self.encoding)
         return data
@@ -223,10 +295,12 @@ class File(metaclass=abc.ABCMeta):
             TypeError if the contents are invalid.
         """
         self._write_checks(content)
+        if (self.compression or self.transform) and isinstance(content, str):
+            content = content.encode(self.encoding)
+        if self.transform:
+            content = self.transform.apply(content)
         if self.compression:
-            if isinstance(content, str):
-                content = content.encode(self.encoding)
-            content = self.compression.compress(content)
+            content = self.compression.apply(content)
         return self._write(content)
 
     def _write_checks(self, content: bytes | str) -> None:
@@ -249,7 +323,8 @@ class Filesystem(metaclass=abc.ABCMeta):
     def __init__(
         self,
         file_type: type[File],
-        compression: str | Compressor | ModuleType | None = NO_COMPRESSION,
+        compression: str | Transform | None = NO_COMPRESSION,
+        transform: Transform | None = None,
     ) -> None:
         """Initialize the base attributes of the filesystem for read and write operations.
 
@@ -257,11 +332,14 @@ class Filesystem(metaclass=abc.ABCMeta):
             file_type: File adapter type to use when opening files for read and write operations.
             compression: Default compression type to use when reading or writing file contents.
                 Use basic string name to load from default compressor cache.
+            transform: Default transformation used when reading or writing the file contents.
+                Transformations are applied before compression when writing, and after decompression when reading.
         """
-        self.ftype = file_type
-        self.compression = compression
         if not __COMPRESSORS__:
             init_compressors()
+        self.ftype = file_type
+        self.compression = compression
+        self.transform = transform
 
     @contextmanager
     def open(
@@ -269,7 +347,8 @@ class Filesystem(metaclass=abc.ABCMeta):
         file: str,
         mode: str = "rt",
         encoding: str = "utf-8",
-        compression: str | None = None,
+        compression: str | Transform | None = None,
+        transform: Transform | None = None,
     ) -> File:
         """Open file for read and write operations, and perform automatic cleanup.
 
@@ -279,9 +358,17 @@ class Filesystem(metaclass=abc.ABCMeta):
             encoding: Name of the encoding used to decode or encode the file when in text mode.
             compression: Type of compression used when reading or writing the file contents.
                 Use `None` to default to the Filesystem compression type.
-                Default Filesystem compression is no compression.
+            transform: Type of transformation used when reading or writing the file contents.
+                Use `None` to default to the Filesystem transformation type.
         """
-        with self.ftype(self, file, mode=mode, encoding=encoding, compression=compression or self.compression) as _file:
+        with self.ftype(
+            self,
+            file,
+            mode=mode,
+            encoding=encoding,
+            compression=compression or self.compression,
+            transform=transform or self.transform,
+        ) as _file:
             yield _file
 
     def exists(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
@@ -381,7 +468,8 @@ class LocalFile(File):
         file: str,
         mode: str = "rt",
         encoding: str = "utf-8",
-        compression: str = NO_COMPRESSION,
+        compression: str | Transform | None = NO_COMPRESSION,
+        transform: Transform | None = None,
     ) -> None:
         """Initialize the base attributes of the local file for read and write operations.
 
@@ -391,9 +479,9 @@ class LocalFile(File):
             mode: Options used to open the file.
             encoding: Name of the encoding used to decode or encode the file when in text mode.
             compression: Type of compression used when reading or writing the file contents.
+            transform: Data transformation used when reading or writing the file contents.
         """
-        # Left strip to ensure that absolute paths are treated as relative, so that the filesystem directory is root.
-        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression)
+        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression, transform=transform)
         self.filesystem: LocalFilesystem = filesystem  # Set again with typehint to avoid lint warnings.
         self._file = None
 
@@ -415,7 +503,7 @@ class LocalFile(File):
             mode = f"{mode}t"
 
         encoding = self.encoding
-        if self.compression:
+        if self.compression or self.transform:
             # Force the mode to binary to allow utilizing native open operation to read/write compressed data.
             mode = mode.replace("t", "b")
             encoding = None
@@ -446,7 +534,8 @@ class LocalFilesystem(Filesystem):
     def __init__(
         self,
         directory: str,
-        compression: str = NO_COMPRESSION,
+        compression: str | Transform | None = NO_COMPRESSION,
+        transform: Transform | None = None,
         safe_paths: bool = True,
     ) -> None:
         """Initialize the base attributes of the local filesystem for read and write operations.
@@ -454,11 +543,11 @@ class LocalFilesystem(Filesystem):
         Args:
             directory: Root directory for all files available in the filesystem.
             compression: Default compression type to use when reading or writing file contents.
-                Use basic string name to load from default compressor cache.
+            transform: Default transformation used when reading or writing file contents.
             safe_paths: Whether safety checks are performed to prevent path escape attempts from filesystem directory.
                 If paths are guaranteed to be safe, disable to maximize performance.
         """
-        super().__init__(LocalFile, compression=compression)
+        super().__init__(LocalFile, compression=compression, transform=transform)
         self.ftype = LocalFile  # Set again to avoid lint errors.
         self.directory = os.path.abspath(directory)
         self.safe_paths = safe_paths
@@ -470,7 +559,8 @@ class LocalFilesystem(Filesystem):
         file: str,
         mode: str = "rt",
         encoding: str = "utf-8",
-        compression: str | None = None,
+        compression: str | Transform | None = None,
+        transform: Transform | None = None,
     ) -> File:
         path = os.path.abspath(os.path.join(self.directory, file.lstrip(os.path.sep)))
         if self.safe_paths:
@@ -478,7 +568,14 @@ class LocalFilesystem(Filesystem):
             if not path.startswith(self.directory):
                 raise FileNotFoundError(errno.ENOENT, f"No such file or directory: {file}")
 
-        with self.ftype(self, path, mode=mode, encoding=encoding, compression=compression or self.compression) as _file:
+        with self.ftype(
+            self,
+            path,
+            mode=mode,
+            encoding=encoding,
+            compression=compression or self.compression,
+            transform=transform or self.transform,
+        ) as _file:
             yield _file
 
     @override
@@ -511,13 +608,14 @@ class LocalFilesystem(Filesystem):
 class MemFile(File):
     """File-like object stored in memory."""
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         filesystem: MemFilesystem,
         file: str,
         mode: str = "rt",
         encoding: str = "utf-8",
-        compression: str = NO_COMPRESSION,
+        compression: str | Transform | None = NO_COMPRESSION,
+        transform: Transform | None = None,
     ) -> None:
         """Initialize the base attributes of the in-memory file for read and write operations.
 
@@ -527,8 +625,9 @@ class MemFile(File):
             mode: Options used to open the file.
             encoding: Name of the encoding used to decode or encode the file when in text mode.
             compression: Type of compression used when reading or writing the file contents.
+            transform: Data transformation used when reading or writing the file contents.
         """
-        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression)
+        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression, transform=transform)
         self.filesystem: MemFilesystem = filesystem  # Set again with typehint to avoid lint warnings.
 
     @override
@@ -553,16 +652,17 @@ class MemFilesystem(Filesystem):
     def __init__(
         self,
         tree: dict[str, bytes | str] | None = None,
-        compression: str = NO_COMPRESSION,
+        compression: str | Transform | None = NO_COMPRESSION,
+        transform: Transform | None = None,
     ) -> None:
         """Initialize the base attributes of the in-memory filesystem for read and write operations.
 
         Args:
             tree: Initial virtual filesystem tree contents.
             compression: Default compression type to use when reading or writing file contents.
-                Use basic string name to load from default compressor cache.
+            transform: Default transformation used when reading or writing file contents.
         """
-        super().__init__(MemFile, compression=compression)
+        super().__init__(MemFile, compression=compression, transform=transform)
         self.tree = tree or {}
 
     @override
@@ -586,13 +686,14 @@ class S3BotoFile(File):
         "_write_response",
     )
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         filesystem: S3BotoFilesystem,
         file: str,
         mode: str = "rt",
         encoding: str = "utf-8",
-        compression: str = NO_COMPRESSION,
+        compression: str | Transform | None = NO_COMPRESSION,
+        transform: Transform | None = None,
     ) -> None:
         """Initialize the base attributes of the file-like S3 object for read and write operations.
 
@@ -602,8 +703,9 @@ class S3BotoFile(File):
             mode: Options used to open the file.
             encoding: Name of the encoding used to decode or encode the file when in text mode.
             compression: Type of compression used when reading or writing the file contents.
+            transform: Data transformation used when reading or writing the file contents.
         """
-        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression)
+        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression, transform=transform)
         self.filesystem: S3BotoFilesystem = filesystem  # Set again with typehint to avoid lint warnings.
         self._read_response = None
         self._write_response = None
@@ -654,7 +756,8 @@ class S3BotoFilesystem(Filesystem):
         secret_access_key: str = None,
         region_name: str = None,
         profile_name: str = None,
-        compression: str = NO_COMPRESSION,
+        compression: str | Transform | None = NO_COMPRESSION,
+        transform: Transform | None = None,
     ) -> None:
         """Initialize the base attributes of the S3 filesystem for read and write operations.
 
@@ -665,9 +768,9 @@ class S3BotoFilesystem(Filesystem):
             region_name: Default region when creating bucket connection.
             profile_name: Name of a custom profile to use, instead of default.
             compression: Default compression type to use when reading or writing file contents.
-                Use basic string name to load from default compressor cache.
+            transform: Default transformation used when reading or writing file contents.
         """
-        super().__init__(S3BotoFile, compression=compression)
+        super().__init__(S3BotoFile, compression=compression, transform=transform)
         try:
             # pylint: disable=import-outside-toplevel,invalid-name
             import boto3
@@ -711,13 +814,14 @@ class S3BotoFilesystem(Filesystem):
 class SQLiteFile(File):
     """File-like object in a SQLite database."""
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         filesystem: SQLiteFilesystem,
         file: str,
         mode: str = "rt",
         encoding: str = "utf-8",
-        compression: str = NO_COMPRESSION,
+        compression: str | Transform | None = NO_COMPRESSION,
+        transform: Transform | None = None,
     ) -> None:
         """Initialize the base attributes of the file-like database object for read and write operations.
 
@@ -727,8 +831,9 @@ class SQLiteFile(File):
             mode: Options used to open the file.
             encoding: Name of the encoding used to decode or encode the file when in text mode.
             compression: Type of compression used when reading or writing the file contents.
+            transform: Data transformation used when reading or writing the file contents.
         """
-        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression)
+        super().__init__(filesystem, file, mode=mode, encoding=encoding, compression=compression, transform=transform)
         self.filesystem: SQLiteFilesystem = filesystem  # Set again with typehint to avoid lint warnings.
 
     @override
@@ -753,13 +858,14 @@ class SQLiteFile(File):
 class SQLiteFilesystem(Filesystem):
     """Collection of file-like objects available in a database using SQLite."""
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         database: str,
         table_name: str = "files",
         file_col: str = "file",
         content_col: str = "content",
-        compression: str = NO_COMPRESSION,
+        compression: str | Transform | None = NO_COMPRESSION,
+        transform: Transform | None = None,
     ) -> None:
         """Initialize the base attributes of the database filesystem for read and write operations.
 
@@ -769,7 +875,7 @@ class SQLiteFilesystem(Filesystem):
             file_col: Name of the column in the table that contains the path to the files.
             content_col: Name of the column in the table that contains the raw contents for the files.
             compression: Default compression type to use when reading or writing file contents.
-                Use basic string name to load from default compressor cache.
+            transform: Default transformation used when reading or writing file contents.
         """
         for name, value in (
             ("table_name", table_name),
@@ -778,7 +884,7 @@ class SQLiteFilesystem(Filesystem):
         ):
             if not re.match(r"^[A-za-z0-9_]+$", value):
                 raise ValueError(f"{name} may only contain letters, numbers, and underscores.")
-        super().__init__(SQLiteFile, compression=compression)
+        super().__init__(SQLiteFile, compression=compression, transform=transform)
         try:
             # pylint: disable=import-outside-toplevel,redefined-outer-name,reimported
             import sqlite3
@@ -866,7 +972,7 @@ def init_compressors() -> list[str]:
     for lib in libs:
         name, module_name = lib if len(lib) == 2 else (lib[0], lib[0])  # pylint: disable=unbalanced-tuple-unpacking
         try:
-            __COMPRESSORS__[name] = importlib.import_module(module_name)
+            __COMPRESSORS__[name] = Compressor(importlib.import_module(module_name))
         except ImportError:
             pass
     return sorted(set(str(key).lower() for key in __COMPRESSORS__))
