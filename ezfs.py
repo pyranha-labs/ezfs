@@ -66,7 +66,8 @@ if typing.TYPE_CHECKING:
 
 __version__ = "1.0.2"
 __COMPRESSORS__: dict[str, Transform | None] = {}
-NO_COMPRESSION = "none"
+NO_TRANSFORM = "none"
+NO_COMPRESSION = NO_TRANSFORM
 Path = str | bytes | PathLike[str] | PathLike[bytes]
 
 
@@ -269,7 +270,7 @@ class Filesystem(metaclass=abc.ABCMeta):
         if not self.exists(path):
             raise FileNotFoundError(errno.ENOENT, f"No such file or directory: {path}")
         if not self.isfile(path):
-            raise OSError(1, f"Operation not permitted: {path}")
+            raise OSError(errno.EPERM, f"Operation not permitted: {path}")
         self._remove(path, dir_fd=dir_fd)
 
     @abc.abstractmethod
@@ -299,7 +300,7 @@ class Filesystem(metaclass=abc.ABCMeta):
         if not self.exists(src):
             raise FileNotFoundError(errno.ENOENT, f"No such file or directory: {src}")
         if not self.isfile(src):
-            raise OSError(1, f"Operation not permitted: {src}")
+            raise OSError(errno.EPERM, f"Operation not permitted: {src}")
         if self.exists(dst):
             raise FileExistsError(errno.EEXIST, f"File exists: {dst}")
         self._rename(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
@@ -320,6 +321,7 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
         "transform",
     )
     valid_modes = ("r", "w", "b", "t", "+")
+    skip_write_encode = False
 
     def __init__(  # pylint: disable=too-many-arguments
         self,
@@ -347,7 +349,7 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
         self.mode = mode
         self.encoding = encoding
         self.compression = __COMPRESSORS__[compression] if isinstance(compression, str) else compression
-        self.transform = transform
+        self.transform = transform if transform != NO_TRANSFORM else None
 
     def __repr__(self) -> str:
         """Internal string representation of the file."""
@@ -398,8 +400,8 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
             raise ValueError("can't have text and binary mode at once")
 
     @abc.abstractmethod
-    def _read(self) -> bytes | str:
-        """Read the contents of the file."""
+    def _read(self) -> bytes:
+        """Read the raw contents of the file."""
 
     def read(self) -> bytes | str:
         """Read the contents of the file.
@@ -423,8 +425,8 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
             raise UnsupportedOperation("not readable")
 
     @abc.abstractmethod
-    def _write(self, data: bytes | str) -> int:
-        """Write the contents to the file."""
+    def _write(self, data: bytes) -> int:
+        """Write the raw contents to the file."""
 
     def write(self, content: bytes | str) -> int:
         """Write the contents to the file.
@@ -446,6 +448,8 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
             content = self.transform.apply(content)
         if self.compression:
             content = self.compression.apply(content)
+        if not self.skip_write_encode and isinstance(content, str):
+            content = content.encode(self.encoding)
         return self._write(content)
 
     def _write_checks(self, content: bytes | str) -> None:
@@ -457,8 +461,6 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
         if isinstance(content, bytes) and "b" not in self.mode:
             raise TypeError("write() argument must be str, not bytes")
         if isinstance(content, str) and "t" not in self.mode:
-            raise TypeError("write() argument must be bytes, not str")
-        if not isinstance(content, (bytes, str)):
             raise TypeError("write() argument must be bytes, not str")
 
 
@@ -526,6 +528,9 @@ class LocalFilesystem(Filesystem):
 
     @override
     def remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
+        if self.safe_paths:
+            # Validate final path to file, and treat as not found if attempting to escape the root.
+            path = self._validate(path)
         # Bypass base remove() checks to allow support for dir_fd, and 1-to-1 match with native behavior.
         os.remove(path, dir_fd=dir_fd)
 
@@ -535,14 +540,26 @@ class LocalFilesystem(Filesystem):
 
     @override
     def rename(self, src: Path, dst: Path, *, src_dir_fd: int | None = None, dst_dir_fd: int | None = None) -> None:
+        if self.safe_paths:
+            # Validate final path to files, and treat as not found if attempting to escape the root.
+            src = self._validate(src)
+            dst = self._validate(dst)
         # Bypass base rename() checks to allow support for dir_fd arguments, and 1-to-1 match with native behavior.
         os.rename(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
+
+    def _validate(self, path: str) -> str:
+        """Ensure a path is within the directory boundary for this filesystem."""
+        final_path = os.path.abspath(os.path.join(self.directory, path.lstrip(os.path.sep)))
+        if not final_path.startswith(self.directory):
+            raise FileNotFoundError(errno.ENOENT, f"No such file or directory: {path}")
+        return final_path
 
 
 class LocalFile(File[LocalFilesystem]):
     """File-like object on a local filesystem."""
 
     __slots__ = ("_file",)
+    skip_write_encode = True
 
     @override
     def __str__(self) -> str:
@@ -564,6 +581,8 @@ class LocalFile(File[LocalFilesystem]):
         if self.compression or self.transform:
             # Force the mode to binary to allow utilizing native open operation to read/write compressed data.
             mode = mode.replace("t", "b")
+            encoding = None
+        if "b" in mode:
             encoding = None
         self._file = open(self.file, mode, encoding=encoding)  # pylint: disable=attribute-defined-outside-init,consider-using-with
 
@@ -624,7 +643,7 @@ class MemFile(File[MemFilesystem]):
     __slots__ = ()
 
     @override
-    def _read(self) -> bytes | str:
+    def _read(self) -> bytes:
         return self.filesystem.tree.get(self.file)
 
     @override
@@ -634,7 +653,7 @@ class MemFile(File[MemFilesystem]):
         super()._read_checks()
 
     @override
-    def _write(self, data: bytes | str) -> int:
+    def _write(self, data: bytes) -> int:
         self.filesystem.tree[self.file] = data
         return len(data)
 
@@ -714,7 +733,7 @@ class S3BotoFile(File[S3BotoFilesystem]):
         return f"{self.filesystem.bucket_name}:{self.file}"
 
     @override
-    def _read(self) -> bytes | str:
+    def _read(self) -> bytes:
         try:
             read_response = self.filesystem.client.get_object(Bucket=self.filesystem.bucket_name, Key=self.file)
             content = read_response["Body"].read()
@@ -726,7 +745,7 @@ class S3BotoFile(File[S3BotoFilesystem]):
         return content
 
     @override
-    def _write(self, data: bytes | str) -> int:
+    def _write(self, data: bytes) -> int:
         self.filesystem.client.put_object(Body=data, Bucket=self.filesystem.bucket_name, Key=self.file)
         return len(data)
 
@@ -736,7 +755,7 @@ class SQLiteFilesystem(Filesystem):
 
     def __init__(  # pylint: disable=too-many-arguments
         self,
-        database: str,
+        database: str = ":memory:",
         table_name: str = "files",
         file_col: str = "file",
         content_col: str = "content",
@@ -839,7 +858,7 @@ class SQLiteFile(File[SQLiteFilesystem]):
         return f"sqlite3://{self.filesystem.database}?table_name={self.filesystem.table_name}&file={self.file}"
 
     @override
-    def _read(self) -> bytes | str:
+    def _read(self) -> bytes:
         res = self.filesystem.execute(self.filesystem.read_query, (self.file,)).fetchone()
         if res is None:
             raise FileNotFoundError(errno.ENOENT, f"No such file: '{self.file}'")
@@ -847,7 +866,7 @@ class SQLiteFile(File[SQLiteFilesystem]):
         return content
 
     @override
-    def _write(self, data: bytes | str) -> int:
+    def _write(self, data: bytes) -> int:
         self.filesystem.execute(self.filesystem.write_query, (self.file, data, data))
         self.filesystem.commit()
         return len(data)
