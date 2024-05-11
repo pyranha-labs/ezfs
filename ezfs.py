@@ -904,7 +904,11 @@ def init_compressors() -> list[str]:
     for lib in libs:
         name, module_name = lib if len(lib) == 2 else (lib[0], lib[0])  # pylint: disable=unbalanced-tuple-unpacking
         try:
-            __COMPRESSORS__[name] = Compressor(importlib.import_module(module_name))
+            mod = importlib.import_module(module_name)
+            if name == "zstd":
+                __COMPRESSORS__[name] = Transform(mod.ZstdCompressor().compress, mod.ZstdDecompressor().decompress)
+            else:
+                __COMPRESSORS__[name] = Compressor(mod)
         except ImportError:
             pass
     return sorted(set(str(key).lower() for key in __COMPRESSORS__))
