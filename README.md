@@ -176,7 +176,8 @@ b64_transform = ezfs.Transform(
     remove=lambda data: base64.b64decode(data),  # Used on read.
 )
 
-# Transforms can be applied at the Filesystem level, or File level, similar to compression, with "transform=...":
+# Transforms can be applied at the Filesystem level, or File level,
+# similar to compression, with "transform=...":
 fs = ezfs.LocalFilesystem('/tmp', transform=b64_transform)
 with fs.open('test.txt', 'w+') as out_file:
     out_file.write('test message')
@@ -230,8 +231,10 @@ they are supported with advanced installs (extras), and whether they are optimiz
 | isfile()              | ✅   | -      | ✅ ³       | ✅          |
 | remove()              | ✅   | -      | ✅ ³       | ✅          |
 | rename()              | ✅   | -      | ✅ ³       | ✅          |
-| Local file storage    | ✅   | ✅      | ✅         | ✅          |
-| Memory file storage   | ✅   | ✅      | ✅         | ✅          |
+| Text files            | ✅   | -      | ✅ ² ³     | ✅          |
+| Binary files          | ✅   | -      | ✅ ² ³     | ✅          |
+| Local file storage    | ✅   | -      | ✅         | ✅          |
+| Memory file storage   | ✅   | -      | ✅         | ✅          |
 | S3 file storage       | ❌   | ✅      | ✅         | ✅          |
 | SQLite file storage   | ✅ ¹ | -      | ✅         | ✅          |
 | Custom data transform | ✅   | -      | ✅         | ✅          |

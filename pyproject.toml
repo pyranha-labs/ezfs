@@ -70,6 +70,9 @@ fail_under = 90
 
 [tool.coverage.run]
 branch = true
+omit = [
+    "conftest.py"
+]
 
 [tool.pylint]
 # Pylint requires a full list of disables, or a full list of includes, and cannot be partially overridden.
