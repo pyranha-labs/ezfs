@@ -36,6 +36,7 @@ from io import UnsupportedOperation
 from os import PathLike
 from types import ModuleType
 from types import TracebackType
+from typing import Any
 from typing import Callable
 from typing import Generic
 from typing import Iterable
@@ -144,26 +145,35 @@ class Transform(metaclass=abc.ABCMeta):
 class Compressor(Transform):
     """Transform data using a compression/decompression module."""
 
-    def __init__(self, compressor: ModuleType) -> None:
+    def __init__(
+        self,
+        compressor: ModuleType,
+        compress_kwargs: Any | None = None,
+        decompress_kwargs: Any | None = None,
+    ) -> None:
         """Initialize the compressor with a specific compression module.
 
         Args:
             compressor: The module, or object, with `compress()` and `decompress()` functions.
+            compress_kwargs: Keyword arguments to use during compression. Support varies by compressor.
+            decompress_kwargs: Keyword arguments to use during decompression. Support varies by compressor.
         """
         super().__init__(self._compress, self._decompress)
         self.compressor = compressor
+        self.compression_kwargs = dict(compress_kwargs or {})
+        self.decompression_kwargs = dict(decompress_kwargs or {})
 
     @override
     def _copy(self) -> Transform:
-        return type(self)(self.compressor)
+        return type(self)(self.compressor, self.compression_kwargs.copy(), self.decompression_kwargs.copy())
 
     def _compress(self, data: bytes) -> bytes:
         """Compress the data using the provided module."""
-        return self.compressor.compress(data)
+        return self.compressor.compress(data, **self.compression_kwargs)
 
     def _decompress(self, data: bytes) -> bytes:
         """Decompress the data using the provided module."""
-        return self.compressor.decompress(data)
+        return self.compressor.decompress(data, **self.decompression_kwargs)
 
 
 class Filesystem(metaclass=abc.ABCMeta):
