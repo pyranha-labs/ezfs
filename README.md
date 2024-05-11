@@ -300,6 +300,8 @@ but even larger files benefit, and the simplicity to use stays the same.
 - Small file: 100K
 - Large file: 1M
 - 100 iterations per test
+- s3fs 2024.2.0
+- ezfs 1.0.0
 
 | Scenario               | Write    | Read     |
 |------------------------|----------|----------|
