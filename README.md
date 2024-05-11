@@ -314,6 +314,8 @@ but even larger files benefit, and the simplicity to use stays the same.
 | pandas s3fs large zstd | 37.4 sec | 18.1 sec |
 | pandas ezfs large zstd | 21.5 sec | 11.1 sec |
 
+> Additional comparisons can be found in [Benchmarks](docs/benchmarks.md)
+
 
 ### Contributing
 
