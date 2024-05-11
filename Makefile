@@ -10,7 +10,7 @@ UPSTREAM := git@github.com:pyranha-labs/ezfs.git
 .PHONY: setup
 setup:
 	ln -sfnv $(PROJECT_ROOT).hooks/pre-push $(PROJECT_ROOT).git/hooks/pre-push
-	git remote add upstream $(UPSTREAM)
+	git remote add upstream $(UPSTREAM) || exit 0
 	git fetch upstream
 
 # Create python virtual environment for development/testing.
