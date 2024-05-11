@@ -1,13 +1,12 @@
 """Unit tests for EZFS utilities."""
 
-import gzip
 import io
-import os.path
 import tempfile
 from typing import Any
 from typing import Callable
 
 import pytest
+import zstandard
 
 import ezfs
 
@@ -352,6 +351,25 @@ TEST_CASES = {
                 },
             },
             "raises": ValueError,
+        },
+        "custom compressor with compression kwargs": {
+            "kwargs": {
+                "filesystem_cls": ezfs.MemFilesystem,
+                "filesystem_kwargs": {
+                    "compression": ezfs.Compressor(zstandard, compress_kwargs={"level": 20}),
+                },
+                "file_kwargs": {
+                    "file": TEST_FILE,
+                    "mode": "w",
+                },
+                "content": TEST_STRING,
+            },
+            "returns": {
+                "wrote": 57,
+                "raw": b"(\xb5/\xfd \x93\x85\x01\x00\x12\xc3\t\x0e\xc0\xeb\xc2\x89\xd8\x8al6\xbf\x7f\xaa\xdauO \x8d\xce\x1bJ\xfcr2\xd6\xa6\xf0\x9e\xc5+\xbd\xf9v\xa3\xc6\x0e>\xfb\xb4\x08\x01\x00\xf1tRP",
+                "read_bytes": TEST_STRING_BINARY,
+                "read_text": TEST_STRING,
+            },
         },
     },
     "filesystem remove": {
@@ -749,5 +767,5 @@ def test_transform_chain_with_compressor() -> None:
     ezfs.Transform.chain(
         SWAP_TRANSFORM_1,
         SWAP_TRANSFORM_2,
-        ezfs.Compressor(gzip),
+        ezfs.Compressor(zstandard),
     )
