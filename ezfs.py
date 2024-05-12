@@ -790,19 +790,14 @@ class SQLiteFilesystem(Filesystem):
             if not re.match(r"^[A-za-z0-9_]+$", value):
                 raise ValueError(f"{name} may only contain letters, numbers, and underscores.")
         super().__init__(SQLiteFile, compression=compression, transform=transform)
-        try:
-            # pylint: disable=import-outside-toplevel,redefined-outer-name,reimported
-            import sqlite3
-
-        except ModuleNotFoundError as error:
-            raise ModuleNotFoundError(f"sqlite3 is required to use {self.__class__.__name__}") from error
 
         # Save the database and table name to allow string representations in files,
         # but cache the templates to prevent modifications from impacting later execution.
         self.database = database
         self.table_name = table_name  # Save the table name to allow
-        self._connection = sqlite3.connect(database)
-        self._cursor = self._connection.cursor()
+        self._connection = None
+        self._cursor = None
+        self._connect()
 
         # Cache the query strings to reduce overhead.
         # "nosec" added due to validation before this point.
@@ -822,6 +817,17 @@ class SQLiteFilesystem(Filesystem):
     def commit(self) -> None:
         """Commit any pending transactions to the database backend."""
         self._connection.commit()
+
+    def _connect(self) -> None:
+        """Establish a connection to the database, and request a cursor."""
+        try:
+            # pylint: disable=import-outside-toplevel,redefined-outer-name,reimported
+            import sqlite3
+
+        except ModuleNotFoundError as error:
+            raise ModuleNotFoundError(f"sqlite3 is required to use {self.__class__.__name__}") from error
+        self._connection = sqlite3.connect(self.database)
+        self._cursor = self._connection.cursor()
 
     def create_table(self) -> None:
         """Create a basic table to use for storage."""

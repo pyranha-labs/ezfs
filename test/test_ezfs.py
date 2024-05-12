@@ -1,6 +1,7 @@
 """Unit tests for EZFS utilities."""
 
 import io
+import sqlite3
 import tempfile
 from typing import Any
 from typing import Callable
@@ -760,6 +761,27 @@ def test_filesystem_rename(test_case: dict, function_tester: Callable) -> None:
         return True
 
     function_tester(test_case, lambda *args, **kwargs: _tmpdir_wrapper(_wrapper, *args, **kwargs))
+
+
+def test_sqlite_row_factory() -> None:
+    """Test sqlite connection override to change row factory."""
+    filesystem = ezfs.SQLiteFilesystem()
+    with filesystem.open("test", "w") as file_out:
+        file_out.write("test content")
+    assert ("test", b"test content") == filesystem.execute("SELECT * FROM files").fetchone()
+    with pytest.raises(ValueError):
+        dict(filesystem.execute("SELECT * FROM files").fetchone())
+
+    class DictRows(ezfs.SQLiteFilesystem):
+        def _connect(self) -> None:
+            self._connection = sqlite3.connect(self.database)
+            self._connection.row_factory = sqlite3.Row
+            self._cursor = self._connection.cursor()
+
+    filesystem = DictRows()
+    with filesystem.open("test", "w") as file_out:
+        file_out.write("test content")
+    assert {"file": "test", "content": b"test content"} == dict(filesystem.execute("SELECT * FROM files").fetchone())
 
 
 def test_transform_chain_with_compressor() -> None:
