@@ -134,7 +134,7 @@ class Transform(metaclass=abc.ABCMeta):
             data: The bytes with the transformation applied.
 
         Returns:
-            The original bytes without the transformation applied.
+            The original bytes without the transformation removed.
         """
         if self._dependent:
             data = self._dependent.remove(data)
@@ -200,36 +200,6 @@ class Filesystem(metaclass=abc.ABCMeta):
         self.compression = compression
         self.transform = transform
 
-    @contextmanager
-    def open(
-        self,
-        file: str,
-        mode: str = "rt",
-        encoding: str = "utf-8",
-        compression: str | Transform | None = None,
-        transform: Transform | None = None,
-    ) -> File:
-        """Open file for read and write operations, and perform automatic cleanup.
-
-        Args:
-            file: Location of the file in the filesystem.
-            mode: Options used to open the file. See "open()" for details.
-            encoding: Name of the encoding used to decode or encode the file when in text mode.
-            compression: Type of compression used when reading or writing the file contents.
-                Use `None` to default to the Filesystem compression type.
-            transform: Type of transformation used when reading or writing the file contents.
-                Use `None` to default to the Filesystem transformation type.
-        """
-        with self.ftype(
-            self,
-            file,
-            mode=mode,
-            encoding=encoding,
-            compression=compression or self.compression,
-            transform=transform or self.transform,
-        ) as _file:
-            yield _file
-
     def exists(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
         """Check whether path refers to an existing location in the filesystem.
 
@@ -255,6 +225,39 @@ class Filesystem(metaclass=abc.ABCMeta):
         Returns:
             True if the path is a regular file, False otherwise.
         """
+
+    @contextmanager
+    def open(
+        self,
+        file: str,
+        mode: str = "rt",
+        encoding: str = "utf-8",
+        compression: str | Transform | None = None,
+        transform: Transform | None = None,
+    ) -> File:
+        """Open file for read and write operations, and perform automatic cleanup.
+
+        Args:
+            file: Location of the file in the filesystem.
+            mode: Options used to open the file. See "open()" for details.
+            encoding: Name of the encoding used to decode or encode the file when in text mode.
+            compression: Type of compression used when reading or writing the file contents.
+                Use `None` to default to the Filesystem compression type.
+            transform: Type of transformation used when reading or writing the file contents.
+                Use `None` to default to the Filesystem transformation type.
+
+        Yields:
+            An open file usable as a context manager for read and write operations.
+        """
+        with self.ftype(
+            self,
+            file,
+            mode=mode,
+            encoding=encoding,
+            compression=compression or self.compression,
+            transform=transform or self.transform,
+        ) as _file:
+            yield _file
 
     @abc.abstractmethod
     def _remove(self, path: Path, *, dir_fd: int | None = None) -> None:
@@ -417,7 +420,7 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
         """Read the contents of the file.
 
         Raises:
-            UnsupportedOperation if the file is not writeable.
+            UnsupportedOperation if the file is not readable.
         """
         self._read_checks()
         data = self._read()
@@ -494,7 +497,6 @@ class LocalFilesystem(Filesystem):
                 If paths are guaranteed to be safe, disable to maximize performance.
         """
         super().__init__(LocalFile, compression=compression, transform=transform)
-        self.ftype = LocalFile  # Set again to avoid lint errors.
         self.directory = os.path.abspath(directory)
         self.safe_paths = safe_paths
 
@@ -794,7 +796,7 @@ class SQLiteFilesystem(Filesystem):
         # Save the database and table name to allow string representations in files,
         # but cache the templates to prevent modifications from impacting later execution.
         self.database = database
-        self.table_name = table_name  # Save the table name to allow
+        self.table_name = table_name
         self._connection = None
         self._cursor = None
         self._connect()
