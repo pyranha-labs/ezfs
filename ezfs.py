@@ -65,7 +65,7 @@ if typing.TYPE_CHECKING:
             Cursor = None
 
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 __COMPRESSORS__: dict[str, Transform | None] = {}
 NO_TRANSFORM = "none"
 NO_COMPRESSION = NO_TRANSFORM
