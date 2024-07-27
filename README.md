@@ -256,13 +256,13 @@ they are supported with advanced installs (extras), and whether they are optimiz
 | File streaming        | ❌   | ❌      | -         | -          |
 | File seeking          | ❌   | ❌      | -         | -          |
 
-¹ Depends on how Python was built
+¹ Depends on how Python was built  
 ² Depends on compression module used  
 ³ Depends on the backend used
 
 ### Dependency Simplicity Example
 
-Here is an example of using a library such as `sf3s` vs `ezfs` for basic read and write to S3, and its effect
+Here is an example of using a library such as `s3fs` vs `ezfs` for basic read and write to S3, and its effect
 on required dependencies in a project. A basic `boto3` install (only requirement for `ezfs` support) will add
 the following to the environment:
 - boto3

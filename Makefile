@@ -38,7 +38,7 @@ format:
 		(echo "💔 Please run formatter to ensure code consistency and quality:\nruff format $(PROJECT_ROOT)"; exit 1)
 
 # Check for common lint/complexity/style issues.
-# Ruff is used for isort and pycodestyle.
+# Ruff is used for isort, pycodestyle, pydocstyle. Pylint is used separately for greater coverage.
 .PHONY: lint
 lint:
 	@echo Running code and documentation style checks: isort, pycodestyle, pydocstyle
