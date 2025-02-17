@@ -198,12 +198,12 @@ def main() -> None:
     compressors = ezfs.init_compressors()
     selected = args.compression or compressors
 
-    print(f'{"Available compression types:":<{COL_WIDTH}}', ", ".join(compressors))
-    print(f'{"Selected compression types:":<{COL_WIDTH}}', ", ".join(selected) if selected != compressors else "all")
-    print(f'{"Selected filesystem types:":<{COL_WIDTH}}', ", ".join(fs_types))
-    print(f'{"Test iterations per loop:":<{COL_WIDTH}}', number)
-    print(f'{"Test loops:":<{COL_WIDTH}}', repeat)
-    print(f'{"Test content:":<{COL_WIDTH}}', args.input_file or TEST_STRING)
+    print(f"{'Available compression types:':<{COL_WIDTH}}", ", ".join(compressors))
+    print(f"{'Selected compression types:':<{COL_WIDTH}}", ", ".join(selected) if selected != compressors else "all")
+    print(f"{'Selected filesystem types:':<{COL_WIDTH}}", ", ".join(fs_types))
+    print(f"{'Test iterations per loop:':<{COL_WIDTH}}", number)
+    print(f"{'Test loops:':<{COL_WIDTH}}", repeat)
+    print(f"{'Test content:':<{COL_WIDTH}}", args.input_file or TEST_STRING)
     print()
 
     if args.input_file:

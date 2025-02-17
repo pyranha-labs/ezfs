@@ -227,7 +227,7 @@ class Filesystem(metaclass=abc.ABCMeta):
         """
 
     @contextmanager
-    def open(
+    def open(  # pylint: disable=too-many-positional-arguments
         self,
         file: str,
         mode: str = "rt",
@@ -336,7 +336,7 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
     valid_modes = ("r", "w", "b", "t", "+")
     skip_write_encode = False
 
-    def __init__(  # pylint: disable=too-many-arguments
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         filesystem: FilesystemType,
         file: str,
@@ -502,7 +502,7 @@ class LocalFilesystem(Filesystem):
 
     @override
     @contextmanager
-    def open(
+    def open(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         file: str,
         mode: str = "rt",
@@ -673,7 +673,7 @@ class MemFile(File[MemFilesystem]):
 class S3BotoFilesystem(Filesystem):
     """Collection of file-like objects available in a remote S3 bucket."""
 
-    def __init__(  # pylint: disable=too-many-arguments
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         bucket_name: str,
         access_key_id: str = None,
@@ -765,7 +765,7 @@ class S3BotoFile(File[S3BotoFilesystem]):
 class SQLiteFilesystem(Filesystem):
     """Collection of file-like objects available in a database using SQLite."""
 
-    def __init__(  # pylint: disable=too-many-arguments
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         database: str = ":memory:",
         table_name: str = "files",
