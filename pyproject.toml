@@ -41,7 +41,7 @@ snappy = ["python-snappy"]
 zstd = ["zstandard"]
 
 [build-system]
-requires = ["setuptools >= 61.0"]
+requires = ["setuptools >= 80.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -110,6 +110,7 @@ max-args = 6
 max-attributes = 10
 
 [tool.pytest.ini_options]
+addopts = "-n auto"
 norecursedirs = [".*"]
 filterwarnings = [
     # Promote all warnings to errors to ensure performance, forwards compatibility, and code quality.
