@@ -676,10 +676,11 @@ class S3BotoFilesystem(Filesystem):
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         bucket_name: str,
-        access_key_id: str = None,
-        secret_access_key: str = None,
-        region_name: str = None,
-        profile_name: str = None,
+        access_key_id: str | None = None,
+        secret_access_key: str | None = None,
+        session_token: str | None = None,
+        region_name: str | None = None,
+        profile_name: str | None = None,
         compression: str | Transform | None = NO_COMPRESSION,
         transform: Transform | None = None,
     ) -> None:
@@ -688,7 +689,8 @@ class S3BotoFilesystem(Filesystem):
         Args:
             bucket_name: Name of the bucket with all objects available as files in the filesystem.
             access_key_id: Access key ID with permission to read/write to the bucket.
-            secret_access_key: AWS secret access key with permission to read/write to the bucket.
+            secret_access_key: Secret access key with permission to read/write to the bucket.
+            session_token: Session token for the access key with permission to read/write to the bucket.
             region_name: Default region when creating bucket connection.
             profile_name: Name of a custom profile to use, instead of default.
             compression: Default compression type to use when reading or writing file contents.
@@ -708,6 +710,7 @@ class S3BotoFilesystem(Filesystem):
         self._session = boto3.Session(
             aws_access_key_id=access_key_id,
             aws_secret_access_key=secret_access_key,
+            aws_session_token=session_token,
             region_name=region_name,
             profile_name=profile_name,
         )
