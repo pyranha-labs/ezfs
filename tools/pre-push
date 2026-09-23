@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# This file is symlinked into ${REPO}/.git/hooks by `make setup`. Git runs hooks from the repository root,
+# so paths here are written as if run from that directory, and no manual search is required.
+
+make qa test || exit 1
