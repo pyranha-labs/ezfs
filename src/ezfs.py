@@ -32,6 +32,7 @@ import os
 import re
 import typing
 from contextlib import contextmanager
+from importlib.metadata import version
 from io import UnsupportedOperation
 from os import PathLike
 from types import ModuleType
@@ -43,7 +44,7 @@ from typing import Iterable
 from typing import TypeVar
 
 try:
-    from typing import override  # pylint: disable=ungrouped-imports
+    from typing import override
 except ImportError:
     try:
         from typing_extensions import override
@@ -65,7 +66,7 @@ if typing.TYPE_CHECKING:
             Cursor = None
 
 
-__version__ = "1.1.1"
+__version__ = version("ezfs")
 __COMPRESSORS__: dict[str, Transform | None] = {}
 NO_TRANSFORM = "none"
 NO_COMPRESSION = NO_TRANSFORM
@@ -227,7 +228,7 @@ class Filesystem(metaclass=abc.ABCMeta):
         """
 
     @contextmanager
-    def open(  # pylint: disable=too-many-positional-arguments
+    def open(
         self,
         file: str,
         mode: str = "rt",
@@ -336,7 +337,7 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
     valid_modes = ("r", "w", "b", "t", "+")
     skip_write_encode = False
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def __init__(  # pylint: disable=too-many-positional-arguments
         self,
         filesystem: FilesystemType,
         file: str,
@@ -385,7 +386,7 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
         self,
         exc_type: type[BaseException],
         exc_value: BaseException,
-        traceback: TracebackType,  # Preserve the original python name. pylint: disable=redefined-outer-name
+        traceback: TracebackType,
     ) -> None:
         """Cleanup anc close the File when read and write operations are complete."""
         self._close()
@@ -502,7 +503,7 @@ class LocalFilesystem(Filesystem):
 
     @override
     @contextmanager
-    def open(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def open(
         self,
         file: str,
         mode: str = "rt",
@@ -768,7 +769,7 @@ class S3BotoFile(File[S3BotoFilesystem]):
 class SQLiteFilesystem(Filesystem):
     """Collection of file-like objects available in a database using SQLite."""
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def __init__(  # pylint: disable=too-many-positional-arguments
         self,
         database: str = ":memory:",
         table_name: str = "files",
@@ -826,7 +827,7 @@ class SQLiteFilesystem(Filesystem):
     def _connect(self) -> None:
         """Establish a connection to the database, and request a cursor."""
         try:
-            # pylint: disable=import-outside-toplevel,redefined-outer-name,reimported
+            # pylint: disable=import-outside-toplevel
             import sqlite3
 
         except ModuleNotFoundError as error:
@@ -913,7 +914,7 @@ def init_compressors() -> list[str]:
         ("zstd", "zstandard"),
     )
     for lib in libs:
-        name, module_name = lib if len(lib) == 2 else (lib[0], lib[0])  # pylint: disable=unbalanced-tuple-unpacking
+        name, module_name = lib if len(lib) == 2 else (lib[0], lib[0])
         try:
             mod = importlib.import_module(module_name)
             if name == "zstd":

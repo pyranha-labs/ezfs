@@ -51,7 +51,7 @@ for more information.
 
 ## Compatibility
 
-- Supports Python 3.10+
+- Supports Python 3.12+
 - Supports multiple storage types
   - Local filesystem
   - Temporary in-memory storage
@@ -113,25 +113,25 @@ table in [Why EZFS?](#why-ezfs) for information on additional features.
 import ezfs
 
 # No default compression/decompression:
-fs = ezfs.LocalFilesystem('/tmp')
+fs = ezfs.LocalFilesystem("/tmp")
 
 # With default compression/decompression for all files:
-fs = ezfs.LocalFilesystem('/tmp', compression='gzip')
+fs = ezfs.LocalFilesystem("/tmp", compression="gzip")
 
 # Use default compression from filesystem during write:
-with fs.open('test.txt.gz', 'w+') as out_file:
-    out_file.write('test message')
+with fs.open("test.txt.gz", "w+") as out_file:
+    out_file.write("test message")
 
 # Manually specify compression during write:
-with fs.open('test.txt.gz', 'w+', compression='gzip') as out_file:
-    out_file.write('test message')
+with fs.open("test.txt.gz", "w+", compression="gzip") as out_file:
+    out_file.write("test message")
 
 # Use default decompression from filesystem during read:
-with fs.open('test.txt.gz') as in_file:
+with fs.open("test.txt.gz") as in_file:
     print(in_file.read())
 
 # Manually specify decompression during read:
-with fs.open('test.txt.gz', compression='gzip') as in_file:
+with fs.open("test.txt.gz", compression="gzip") as in_file:
     print(in_file.read())
 ```
 
@@ -140,13 +140,13 @@ with fs.open('test.txt.gz', compression='gzip') as in_file:
 import ezfs
 
 # Only a single change is needed, such as from a local folder:
-fs = ezfs.LocalFilesystem('/tmp')
+fs = ezfs.LocalFilesystem("/tmp")
 # To a local database file:
-fs = ezfs.SQLiteFilesystem('/tmp/tmp.db')
+fs = ezfs.SQLiteFilesystem("/tmp/tmp.db")
 
 # No change is needed to open/read/write operations:
-with fs.open('test.txt.gz', 'w+', compression='gzip') as out_file:
-    out_file.write('test message')
+with fs.open("test.txt.gz", "w+", compression="gzip") as out_file:
+    out_file.write("test message")
 ```
 
 ### Access a file (object) in an S3 bucket, and use compression
@@ -155,14 +155,14 @@ import ezfs
 
 # To use advanced compression types, they must be installed separately.
 fs = ezfs.S3BotoFilesystem(
-    'my-bucket-1234',
-    access_key_id='ABC123',
-    secret_access_key='abcdefg1234567',
-    compression='zstd',
+    "my-bucket-1234",
+    access_key_id="ABC123",
+    secret_access_key="abcdefg1234567",
+    compression="zstd",
 )
-with fs.open('test.txt.zst', 'w+') as out_file:
-    out_file.write('test message')
-with fs.open('test.txt.zst') as in_file:
+with fs.open("test.txt.zst", "w+") as out_file:
+    out_file.write("test message")
+with fs.open("test.txt.zst") as in_file:
     print(in_file.read())
 ```
 
@@ -178,17 +178,14 @@ b64_transform = ezfs.Transform(
 
 # Transforms can be applied at the Filesystem level, or File level,
 # similar to compression, with "transform=...":
-fs = ezfs.LocalFilesystem('/tmp', transform=b64_transform)
-with fs.open('test.txt', 'w+') as out_file:
-    out_file.write('test message')
-with fs.open('test.txt', transform=b64_transform) as in_file:
+fs = ezfs.LocalFilesystem("/tmp", transform=b64_transform)
+with fs.open("test.txt", "w+") as out_file:
+    out_file.write("test message")
+with fs.open("test.txt", transform=b64_transform) as in_file:
     print(in_file.read())
 
 # Transforms can be combined to create complex transformations:
-transform = ezfs.Transform.chain(
-    b64_transform,
-    ...
-)
+transform = ezfs.Transform.chain(b64_transform, ...)
 ```
 
 
