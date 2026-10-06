@@ -73,7 +73,7 @@ NO_COMPRESSION = NO_TRANSFORM
 Path = str | bytes | PathLike[str] | PathLike[bytes]
 
 
-class Transform(metaclass=abc.ABCMeta):
+class Transform(metaclass=abc.ABCMeta):  # pyqa: disable=order-alpha Rise instead of sink to prevent Compressor move.
     """Transformation to apply to raw bytes before writing to, or after reading from, raw storage.
 
     Common transformations include compression/decompression, encoding/decoding, and encrypting/decrypting.
@@ -164,13 +164,13 @@ class Compressor(Transform):
         self.compression_kwargs = dict(compress_kwargs or {})
         self.decompression_kwargs = dict(decompress_kwargs or {})
 
-    @override
-    def _copy(self) -> Transform:
-        return type(self)(self.compressor, self.compression_kwargs.copy(), self.decompression_kwargs.copy())
-
     def _compress(self, data: bytes) -> bytes:
         """Compress the data using the provided module."""
         return self.compressor.compress(data, **self.compression_kwargs)
+
+    @override
+    def _copy(self) -> Transform:
+        return type(self)(self.compressor, self.compression_kwargs.copy(), self.decompression_kwargs.copy())
 
     def _decompress(self, data: bytes) -> bytes:
         """Decompress the data using the provided module."""
@@ -365,18 +365,10 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
         self.compression = __COMPRESSORS__[compression] if isinstance(compression, str) else compression
         self.transform = transform if transform != NO_TRANSFORM else None
 
-    def __repr__(self) -> str:
-        """Internal string representation of the file."""
-        return f"{self.__class__.__name__.lower()}:{self.file}"
-
-    def __str__(self) -> str:
-        """External string representation of the file."""
-        return self.file
-
     def __enter__(self) -> File:
         """Open a file for read and write operations.
 
-        Return:
+        Returns:
             This File in an open state as a context manager to handle read and write operations.
         """
         self._open()
@@ -390,6 +382,14 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
     ) -> None:
         """Cleanup anc close the File when read and write operations are complete."""
         self._close()
+
+    def __repr__(self) -> str:
+        """Internal string representation of the file."""
+        return f"{self.__class__.__name__.lower()}:{self.file}"
+
+    def __str__(self) -> str:
+        """External string representation of the file."""
+        return self.file
 
     def _close(self) -> None:
         """Close any open resources used by the file."""
@@ -419,6 +419,9 @@ class File(Generic[FilesystemType], metaclass=abc.ABCMeta):
 
     def read(self) -> bytes | str:
         """Read the contents of the file.
+
+        Returns:
+            The contents of the file, as a string in text mode or bytes in binary mode.
 
         Raises:
             UnsupportedOperation if the file is not readable.
@@ -502,6 +505,14 @@ class LocalFilesystem(Filesystem):
         self.safe_paths = safe_paths
 
     @override
+    def exists(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
+        return os.path.exists(path)
+
+    @override
+    def isfile(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
+        return os.path.isfile(path)
+
+    @override
     @contextmanager
     def open(
         self,
@@ -526,14 +537,6 @@ class LocalFilesystem(Filesystem):
             transform=transform or self.transform,
         ) as _file:
             yield _file
-
-    @override
-    def exists(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
-        return os.path.exists(path)
-
-    @override
-    def isfile(self, path: str | bytes | PathLike[str] | PathLike[bytes]) -> bool:
-        return os.path.isfile(path)
 
     @override
     def _remove(self, path: str | bytes | PathLike[str] | PathLike[bytes], *, dir_fd: int | None = None) -> None:
@@ -696,6 +699,9 @@ class S3BotoFilesystem(Filesystem):
             profile_name: Name of a custom profile to use, instead of default.
             compression: Default compression type to use when reading or writing file contents.
             transform: Default transformation used when reading or writing file contents.
+
+        Raises:
+            ModuleNotFoundError if boto3 or botocore are not installed.
         """
         super().__init__(S3BotoFile, compression=compression, transform=transform)
         try:
@@ -787,6 +793,9 @@ class SQLiteFilesystem(Filesystem):
             content_col: Name of the column in the table that contains the raw contents for the files.
             compression: Default compression type to use when reading or writing file contents.
             transform: Default transformation used when reading or writing file contents.
+
+        Raises:
+            ValueError if the table or column names contain characters other than letters, numbers, and underscores.
         """
         for name, value in (
             ("table_name", table_name),

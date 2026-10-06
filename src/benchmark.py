@@ -3,6 +3,7 @@
 """Simple benchmarks to compare performance of related calls."""
 
 import argparse
+import builtins
 import timeit
 from types import ModuleType
 from typing import Callable
@@ -20,19 +21,6 @@ TEST_STRING_BINARY = TEST_STRING.encode("utf-8")
 def _bench_all(tests: list[tuple], number: int = 1, repeat: int = 1) -> None:
     for func, args, suffix in tests:
         _bench_func(func, args, number, repeat, test_suffix=suffix)
-
-
-def _bench_func(
-    func: Callable,
-    args: Iterable,
-    number: int,
-    repeat: int,
-    test_suffix: str = "",
-) -> None:
-    test_suffix = f"_{test_suffix}" if test_suffix else ""
-    result = timeit.repeat(lambda: func(*args), number=number, repeat=repeat)
-    for duration in result:
-        print(f"{func.__name__.replace('_bench_', '') + test_suffix:<{COL_WIDTH}}", _format_time(duration))
 
 
 def _bench_ezfs_filesystem(
@@ -63,6 +51,19 @@ def _bench_ezfs_read(filesystem: ezfs.Filesystem, mode: str, compression: str) -
 def _bench_ezfs_write(filesystem: ezfs.Filesystem, mode: str, compression: str, content: str | bytes) -> int:
     with filesystem.open(TEST_FILE_NAME, mode, compression=compression) as file:
         return file.write(content)
+
+
+def _bench_func(
+    func: Callable,
+    args: Iterable,
+    number: int,
+    repeat: int,
+    test_suffix: str = "",
+) -> None:
+    test_suffix = f"_{test_suffix}" if test_suffix else ""
+    result = timeit.repeat(lambda: func(*args), number=number, repeat=repeat)
+    for duration in result:
+        builtins.print(f"{func.__name__.replace('_bench_', '') + test_suffix:<{COL_WIDTH}}", _format_time(duration))
 
 
 def _bench_native_filesystem(
@@ -184,7 +185,11 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run all the selected benchmarks."""
+    """Run all the selected benchmarks.
+
+    Raises:
+        SystemExit if the input file fails to load.
+    """
     global TEST_STRING, TEST_STRING_BINARY  # pylint: disable=global-statement
 
     args = _parse_args()
@@ -198,13 +203,15 @@ def main() -> None:
     compressors = ezfs.init_compressors()
     selected = args.compression or compressors
 
-    print(f"{'Available compression types:':<{COL_WIDTH}}", ", ".join(compressors))
-    print(f"{'Selected compression types:':<{COL_WIDTH}}", ", ".join(selected) if selected != compressors else "all")
-    print(f"{'Selected filesystem types:':<{COL_WIDTH}}", ", ".join(fs_types))
-    print(f"{'Test iterations per loop:':<{COL_WIDTH}}", number)
-    print(f"{'Test loops:':<{COL_WIDTH}}", repeat)
-    print(f"{'Test content:':<{COL_WIDTH}}", args.input_file or TEST_STRING)
-    print()
+    builtins.print(f"{'Available compression types:':<{COL_WIDTH}}", ", ".join(compressors))
+    builtins.print(
+        f"{'Selected compression types:':<{COL_WIDTH}}", ", ".join(selected) if selected != compressors else "all"
+    )
+    builtins.print(f"{'Selected filesystem types:':<{COL_WIDTH}}", ", ".join(fs_types))
+    builtins.print(f"{'Test iterations per loop:':<{COL_WIDTH}}", number)
+    builtins.print(f"{'Test loops:':<{COL_WIDTH}}", repeat)
+    builtins.print(f"{'Test content:':<{COL_WIDTH}}", args.input_file or TEST_STRING)
+    builtins.print()
 
     if args.input_file:
         try:

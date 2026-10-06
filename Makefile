@@ -4,7 +4,8 @@
 ##### Project Overrides #####
 
 PYTHON_BIN := python3.12
-PYLINT_EXTRAS := benchmark
+PYLINT_EXTRAS := src/benchmark.py
+PY_SRC_ROOT := src/ezfs.py
 
 ##### Initial Development Setups and Configurations #####
 
@@ -17,13 +18,6 @@ setup:
 	-git remote add upstream $(UPSTREAM)
 	-git fetch upstream
 	@echo "🏆 Git set up complete!"
-	curl https://raw.githubusercontent.com/pyranha-labs/build-tools/refs/heads/main/python.mk -o python.mk
-	make clean-venv venv
-	make default
+	curl -fsSL https://raw.githubusercontent.com/pyranha-labs/build-tools/refs/heads/main/python.mk -o python.mk
+	make update-python-mk clean-venv venv default
 	@echo "🏆 Full set up complete!"
-
-##### Quality Assurance #####
-
-# Override both custom scripts due to being a single file module.
-docstrings: ;
-order: ;
