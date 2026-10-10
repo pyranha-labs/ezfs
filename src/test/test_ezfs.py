@@ -24,7 +24,7 @@ SWAP_TRANSFORM_2 = ezfs.Transform(
 )
 
 
-TEST_CASES = {
+TESTS = {
     "filesystem": {
         "invalid mode": {
             "kwargs": {
@@ -34,7 +34,7 @@ TEST_CASES = {
                     "mode": "u",
                 },
             },
-            "raises": ValueError,
+            "raises": (ValueError, "Invalid mode: 'u'"),
         },
         "read and write mode": {
             "kwargs": {
@@ -44,7 +44,7 @@ TEST_CASES = {
                     "mode": "rw",
                 },
             },
-            "raises": ValueError,
+            "raises": (ValueError, "must have exactly one of read/write mode"),
         },
         "text and binary mode": {
             "kwargs": {
@@ -54,7 +54,7 @@ TEST_CASES = {
                     "mode": "tb",
                 },
             },
-            "raises": ValueError,
+            "raises": (ValueError, "can't have text and binary mode at once"),
         },
         "not found": {
             "kwargs": {
@@ -63,7 +63,7 @@ TEST_CASES = {
                     "file": TEST_FILE + "abc",
                 },
             },
-            "raises": FileNotFoundError,
+            "raises": (FileNotFoundError, "No such file: 'test.txtabc'"),
         },
         "not writeable": {
             "kwargs": {
@@ -73,7 +73,7 @@ TEST_CASES = {
                 },
                 "content": TEST_STRING,
             },
-            "raises": io.UnsupportedOperation,
+            "raises": (io.UnsupportedOperation, "not writeable"),
         },
         "not readable": {
             "kwargs": {
@@ -83,7 +83,7 @@ TEST_CASES = {
                     "mode": "wb",
                 },
             },
-            "raises": io.UnsupportedOperation,
+            "raises": (io.UnsupportedOperation, "not readable"),
         },
         "not bytes": {
             "kwargs": {
@@ -94,7 +94,7 @@ TEST_CASES = {
                 },
                 "content": TEST_STRING,
             },
-            "raises": TypeError,
+            "raises": (TypeError, r"write\(\) argument must be bytes, not str"),
         },
         "not str": {
             "kwargs": {
@@ -105,7 +105,7 @@ TEST_CASES = {
                 },
                 "content": TEST_STRING_BINARY,
             },
-            "raises": TypeError,
+            "raises": (TypeError, r"write\(\) argument must be str, not bytes"),
         },
         "not bytes or string": {
             "kwargs": {
@@ -116,7 +116,7 @@ TEST_CASES = {
                 },
                 "content": ("test", b"test"),
             },
-            "raises": TypeError,
+            "raises": (TypeError, r"write\(\) argument must be bytes or str"),
         },
         "no compression or transform": {
             "kwargs": {
@@ -292,7 +292,7 @@ TEST_CASES = {
                     "mode": "w",
                 },
             },
-            "raises": FileNotFoundError,
+            "raises": (FileNotFoundError, "No such file or directory: ../test.txt"),
         },
         "sqlite": {
             "kwargs": {
@@ -333,7 +333,7 @@ TEST_CASES = {
                     "table_name": "inv@lid",
                 },
             },
-            "raises": ValueError,
+            "raises": (ValueError, "table_name may only contain letters, numbers, and underscores"),
         },
         "sqlite invalid file col": {
             "kwargs": {
@@ -342,7 +342,7 @@ TEST_CASES = {
                     "file_col": "inv@lid",
                 },
             },
-            "raises": ValueError,
+            "raises": (ValueError, "file_col may only contain letters, numbers, and underscores"),
         },
         "sqlite invalid content col": {
             "kwargs": {
@@ -351,7 +351,7 @@ TEST_CASES = {
                     "content_col": "inv@lid",
                 },
             },
-            "raises": ValueError,
+            "raises": (ValueError, "content_col may only contain letters, numbers, and underscores"),
         },
         "custom compressor with compression kwargs": {
             "kwargs": {
@@ -391,7 +391,7 @@ TEST_CASES = {
                 },
                 "skip_write": True,
             },
-            "raises": FileNotFoundError,
+            "raises": (FileNotFoundError, "No such file or directory: removetest.txtabc"),
         },
         "local": {
             "kwargs": {
@@ -416,7 +416,7 @@ TEST_CASES = {
                 },
                 "skip_write": True,
             },
-            "raises": FileNotFoundError,
+            "raises": (FileNotFoundError, "No such file or directory: .*removetest.txtabc"),
         },
         "local, unsafe path": {
             "kwargs": {
@@ -429,7 +429,7 @@ TEST_CASES = {
                 },
                 "skip_write": True,
             },
-            "raises": FileNotFoundError,
+            "raises": (FileNotFoundError, "No such file or directory: ../removetest.txt"),
         },
         "local, safe_paths disabled and dir": {
             "kwargs": {
@@ -445,7 +445,7 @@ TEST_CASES = {
                     "name": "test",
                 },
             },
-            "raises": OSError,
+            "raises": (OSError, "No such file or directory: 'test'"),
         },
         "sqlite": {
             "kwargs": {
@@ -475,7 +475,7 @@ TEST_CASES = {
                     "dir_fd": 1,
                 },
             },
-            "raises": NotImplementedError,
+            "raises": (NotImplementedError, "dir_fd is not supported by MemFilesystem"),
         },
     },
     "filesystem rename": {
@@ -494,7 +494,7 @@ TEST_CASES = {
                 "dst": "rename" + TEST_FILE + ".moved",
                 "skip_write": True,
             },
-            "raises": FileNotFoundError,
+            "raises": (FileNotFoundError, "No such file or directory: renametest.txt"),
         },
         "local": {
             "kwargs": {
@@ -517,7 +517,7 @@ TEST_CASES = {
                 },
                 "skip_write": True,
             },
-            "raises": FileNotFoundError,
+            "raises": (FileNotFoundError, "No such file or directory: .*renametest.txt' -> .*renametest.txt.moved'"),
         },
         "local, unsafe src": {
             "kwargs": {
@@ -529,7 +529,7 @@ TEST_CASES = {
                 },
                 "skip_write": True,
             },
-            "raises": FileNotFoundError,
+            "raises": (FileNotFoundError, "No such file or directory: ../renametest.txt"),
         },
         "local, unsafe dst": {
             "kwargs": {
@@ -541,7 +541,7 @@ TEST_CASES = {
                 },
                 "skip_write": True,
             },
-            "raises": FileNotFoundError,
+            "raises": (FileNotFoundError, "No such file or directory: ../renametest.txt"),
         },
         "sqlite": {
             "kwargs": {
@@ -568,7 +568,7 @@ TEST_CASES = {
                     "src_dir_fd": 1,
                 },
             },
-            "raises": NotImplementedError,
+            "raises": (NotImplementedError, "src_dir_fd and dst_dir_fd are not supported by MemFilesystem"),
         },
         "unsupported dst_dir_fd": {
             "kwargs": {
@@ -579,7 +579,7 @@ TEST_CASES = {
                     "dst_dir_fd": 1,
                 },
             },
-            "raises": NotImplementedError,
+            "raises": (NotImplementedError, "src_dir_fd and dst_dir_fd are not supported by MemFilesystem"),
         },
         "already exists": {
             "kwargs": {
@@ -587,7 +587,7 @@ TEST_CASES = {
                 "src": "rename" + TEST_FILE,
                 "dst": "rename" + TEST_FILE,
             },
-            "raises": FileExistsError,
+            "raises": (FileExistsError, "File exists: renametest.txt"),
         },
     },
     "file properties": {
@@ -653,8 +653,8 @@ def _tmpdir_wrapper(
         return func(filesystem_cls, *args, filesystem_kwargs=filesystem_kwargs, **kwargs)
 
 
-@pytest.mark.parametrize_test_case("test_case", TEST_CASES["file properties"])
-def test_file_properties(test_case: dict, function_tester: Callable) -> None:
+@pytest.mark.parametrize_tests(TESTS["file properties"])
+def test_file_properties(test: dict, function_tester: Callable) -> None:
     """Test file object basic properties."""
 
     def _wrapper(
@@ -671,11 +671,11 @@ def test_file_properties(test_case: dict, function_tester: Callable) -> None:
                 result["repr"] = result["repr"].replace(filesystem.directory, "PYTEST_TMP_DIR")
         return result
 
-    function_tester(test_case, lambda *args, **kwargs: _tmpdir_wrapper(_wrapper, *args, **kwargs))
+    function_tester(test, lambda *args, **kwargs: _tmpdir_wrapper(_wrapper, *args, **kwargs))
 
 
-@pytest.mark.parametrize_test_case("test_case", TEST_CASES["filesystem"])
-def test_filesystem(test_case: dict, function_tester: Callable) -> None:
+@pytest.mark.parametrize_tests(TESTS["filesystem"])
+def test_filesystem(test: dict, function_tester: Callable) -> None:
     """Create a filesystem, and test common file read/write combinations."""
 
     def _wrapper(
@@ -702,11 +702,11 @@ def test_filesystem(test_case: dict, function_tester: Callable) -> None:
             result["read_text"] = file.read()
         return result
 
-    function_tester(test_case, lambda *args, **kwargs: _tmpdir_wrapper(_wrapper, *args, **kwargs))
+    function_tester(test, lambda *args, **kwargs: _tmpdir_wrapper(_wrapper, *args, **kwargs))
 
 
-@pytest.mark.parametrize_test_case("test_case", TEST_CASES["filesystem remove"])
-def test_filesystem_remove(test_case: dict, function_tester: Callable) -> None:
+@pytest.mark.parametrize_tests(TESTS["filesystem remove"])
+def test_filesystem_remove(test: dict, function_tester: Callable) -> None:
     """Test filesystem remove operations."""
 
     def _wrapper(
@@ -731,11 +731,11 @@ def test_filesystem_remove(test_case: dict, function_tester: Callable) -> None:
             return True
         return False
 
-    function_tester(test_case, lambda *args, **kwargs: _tmpdir_wrapper(_wrapper, *args, **kwargs))
+    function_tester(test, lambda *args, **kwargs: _tmpdir_wrapper(_wrapper, *args, **kwargs))
 
 
-@pytest.mark.parametrize_test_case("test_case", TEST_CASES["filesystem rename"])
-def test_filesystem_rename(test_case: dict, function_tester: Callable) -> None:
+@pytest.mark.parametrize_tests(TESTS["filesystem rename"])
+def test_filesystem_rename(test: dict, function_tester: Callable) -> None:
     """Test filesystem rename operations."""
 
     def _wrapper(
@@ -760,7 +760,7 @@ def test_filesystem_rename(test_case: dict, function_tester: Callable) -> None:
             assert file.read() == "test"
         return True
 
-    function_tester(test_case, lambda *args, **kwargs: _tmpdir_wrapper(_wrapper, *args, **kwargs))
+    function_tester(test, lambda *args, **kwargs: _tmpdir_wrapper(_wrapper, *args, **kwargs))
 
 
 def test_sqlite_row_factory() -> None:
