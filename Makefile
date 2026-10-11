@@ -14,7 +14,7 @@ UPSTREAM := git@github.com:pyranha-labs/ezfs.git
 # Set up initial environment for development.
 .PHONY: setup
 setup:
-	ln -sfnv $(PY_PROJECT_ROOT)tools/pre-push $(PY_PROJECT_ROOT).git/hooks/pre-push
+	ln -sfnv ../../tools/pre-push .git/hooks/pre-push
 	-git remote add upstream $(UPSTREAM)
 	-git fetch upstream
 	@echo "🏆 Git set up complete!"
