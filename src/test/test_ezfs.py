@@ -637,22 +637,6 @@ TESTS = {
 }
 
 
-def _tmpdir_wrapper(
-    func: Callable,
-    filesystem_cls: type[ezfs.Filesystem],
-    *args: Any,
-    filesystem_kwargs: dict | None = None,
-    **kwargs: Any,
-) -> bool:
-    """Wrap a function call in a temporary directory that will clean up automatically if a local filesystem test."""
-    if filesystem_cls == ezfs.LocalFilesystem:
-        with tempfile.TemporaryDirectory(dir=".", prefix="pytest_") as tmpdir:
-            filesystem_kwargs["directory"] = tmpdir
-            return func(filesystem_cls, *args, filesystem_kwargs=filesystem_kwargs, **kwargs)
-    else:
-        return func(filesystem_cls, *args, filesystem_kwargs=filesystem_kwargs, **kwargs)
-
-
 @pytest.mark.parametrize_tests(TESTS["file properties"])
 def test_file_properties(test: dict, function_tester: Callable) -> None:
     """Test file object basic properties."""
@@ -791,3 +775,19 @@ def test_transform_chain_with_compressor() -> None:
         SWAP_TRANSFORM_2,
         ezfs.Compressor(zstandard),
     )
+
+
+def _tmpdir_wrapper(
+    func: Callable,
+    filesystem_cls: type[ezfs.Filesystem],
+    *args: Any,
+    filesystem_kwargs: dict | None = None,
+    **kwargs: Any,
+) -> bool:
+    """Wrap a function call in a temporary directory that will clean up automatically if a local filesystem test."""
+    if filesystem_cls == ezfs.LocalFilesystem:
+        with tempfile.TemporaryDirectory(dir=".", prefix="pytest_") as tmpdir:
+            filesystem_kwargs["directory"] = tmpdir
+            return func(filesystem_cls, *args, filesystem_kwargs=filesystem_kwargs, **kwargs)
+    else:
+        return func(filesystem_cls, *args, filesystem_kwargs=filesystem_kwargs, **kwargs)

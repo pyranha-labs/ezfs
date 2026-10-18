@@ -1,4 +1,13 @@
 # Additional recipes for Python based development.
+# Bootstrap python.mk once; from then on it pulls itself and other utilities whenever make runs.
+ifeq ($(wildcard python.mk),)
+python.mk:
+	@tmp_dir="$$(mktemp -d)" && trap 'rm -rf "$$tmp_dir"' EXIT && \
+		git clone --quiet --depth 1 --no-checkout --single-branch --branch $(or $(PY_MAKE_REF),main) \
+			$(or $(PY_MAKE_REPO),git@github.com:pyranha-labs/build-tools.git) "$$tmp_dir" && \
+		git -C "$$tmp_dir" show HEAD:python.mk > "$$tmp_dir/python.mk" && \
+		install -m 444 "$$tmp_dir/python.mk" python.mk
+endif
 -include python.mk
 
 ##### Project Overrides #####
@@ -6,21 +15,7 @@
 PYTHON_BIN := python3.12
 PYLINT_EXTRAS := src/benchmark.py
 PY_SRC_ROOT := src/ezfs.py
-
-##### Initial Development Setups and Configurations #####
-
 UPSTREAM := git@github.com:pyranha-labs/ezfs.git
 
-# Set up initial environment for development.
-.PHONY: setup
-setup:
-	ln -sfnv ../../tools/pre-push .git/hooks/pre-push
-	-git remote add upstream $(UPSTREAM)
-	-git fetch upstream
-	@echo "🏆 Git set up complete!"
-	@# Bootstrap python.mk once; from then on it pulls itself and other utilities whenever make runs.
-	@[ -f python.mk ] || (tmp_dir="$$(mktemp -d)" && trap 'rm -rf "$$tmp_dir"' EXIT && \
-		git clone --quiet --depth 1 --no-checkout git@github.com:pyranha-labs/build-tools.git "$$tmp_dir" && \
-		git -C "$$tmp_dir" show HEAD:python.mk > python.mk)
-	$(MAKE) clean-venv venv default
-	@echo "🏆 Full set up complete!"
+# Optional: Apply user overrides at the end to ensure user values override project overrides.
+-include python_overrides.mk
